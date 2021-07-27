@@ -10,7 +10,7 @@ const (
 	DefaultProxyAddr        = "127.0.0.1:9590"
 	DefaultRootAddr         = "127.0.0.1:9591"
 	DefaultRecursiveAddr    = "127.0.0.1:9592"
-	DefaultEthereumEndpoint = "https://eth-mainnet.alchemyapi.io/v2/O4najN2AWWuOSw8sqz5GJxA6b4gjJRs0"
+	DefaultEthereumEndpoint = "https://mainnet.infura.io/v3/b0933ce6026a4e1e80e89e96a5d095bc"
 )
 
 // User Represents user facing configuration
