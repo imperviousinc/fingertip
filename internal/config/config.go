@@ -228,3 +228,12 @@ func GetProxyURL(addr string) string {
 
 	return "http://" + strings.Join(parts, ":")
 }
+
+func init() {
+	// Skip reserved names in RFC2606
+	// https://datatracker.ietf.org/doc/html/rfc2606
+	var testNames = []string{"localhost", "test", "invalid", "example"}
+	for _, name := range testNames {
+		nameConstraints[name] = struct{}{}
+	}
+}
