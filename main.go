@@ -114,25 +114,29 @@ func main() {
 			err := app.autostart.Disable()
 			if err != nil {
 				ui.ShowErrorDlg(fmt.Sprintf("error disabling launch at login: %v", err))
+				return checked
 			}
+
 			return false
 		}
 
 		appPathShown := strings.TrimSuffix(appPath, "/Contents/MacOS/fingertip")
 		confirm := true
-		// loosely check if the app is in a standard path
+		// warn if the app doesn't seem to be in a standard path
 		if !strings.Contains(appPath, "Program Files") && // windows
+			!strings.Contains(appPath, "AppData") && // windows
 			!strings.Contains(appPath, "Applications") { // macos
-			confirm = ui.ShowYesNoDlg(
-				fmt.Sprintf("Will you keep the app in this path `%s`? \n"+
-					"If not move the app to the desired location before enabling open at login.", appPathShown))
+
+			msg := fmt.Sprintf("Will you keep the app in this path `%s`? \n"+
+				"If not move the app to the desired location before "+
+				"enabling open at login.", appPathShown)
+			confirm = ui.ShowYesNoDlg(msg)
 		}
 
 		if !confirm {
 			return false
 		}
 
-		// do autostart
 		err = app.autostart.Enable()
 		if err != nil {
 			ui.ShowErrorDlg(fmt.Sprintf("error enabling open at login: %v", err))
