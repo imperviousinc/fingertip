@@ -7,6 +7,7 @@ import (
 	"fingertip/internal/resolvers/proc"
 	"fingertip/internal/ui"
 	"fmt"
+	"github.com/buffrr/letsdane"
 	"github.com/emersion/go-autostart"
 	"github.com/pkg/browser"
 	"log"
@@ -298,4 +299,9 @@ func getProcPath() (string, error) {
 
 	exePath := filepath.Dir(exe)
 	return exePath, nil
+}
+
+func init() {
+	// set version used in go.mod
+	letsdane.Version = "0.6-fingertip"
 }
