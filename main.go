@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -40,7 +41,7 @@ func setupApp() *App {
 		log.Fatal(err)
 	}
 
-	c.DNSProcPath, err = createProcPath(c.Path)
+	c.DNSProcPath, err = getProcPath()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -283,4 +284,14 @@ func newProxy(c *config.App, proxyAddr string) (*http.Server, error) {
 	c.ProxyAddr = proxyAddr
 	server := &http.Server{Addr: c.ProxyAddr, Handler: h}
 	return server, nil
+}
+
+func getProcPath() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+
+	exePath := filepath.Dir(exe)
+	return exePath, nil
 }
