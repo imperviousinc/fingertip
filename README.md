@@ -43,16 +43,17 @@ Move hnsd binary to `builds/macos/Fingertip.app/Contents/MacOS/`
 ```
 $ brew install dylibbundler
 $ dylibbundler -od -b -x ./builds/macos/Fingertip.app/Contents/MacOS/hnsd -d ./builds/macos/Fingertip.app/Contents/libs/
-$ go build -o ./builds/macos/Fingertip.app/Contents/MacOS/fingertip
+$ go build -trimpath -o ./builds/macos/Fingertip.app/Contents/MacOS/fingertip
 ```
 
 ### Windows
 
 Follow [hnsd](https://github.com/handshake-org/hnsd) build instructions for windows. Copy hnsd.exe binary and its dependencies (libcrypto, libssl and libunbound dlls) into the `fingertip/builds/windows` directory.
+You no longer need to use MSYS shell.
 
 ```
 $ choco install mingw
-$ go build
+$ go build -trimpath -o ./builds/windows/  -ldflags "-H windowsgui"
 ```
 
 ### Linux
