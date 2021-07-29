@@ -42,7 +42,7 @@ Move hnsd binary to `builds/macos/Fingertip.app/Contents/MacOS/`
 
 ```
 $ brew install dylibbundler
-$ dylibbundler -od -b -x ./builds/macos/Fingertip.app/Contents/MacOS/hnsd -d ./builds/macos/Fingertip.app/Contents/libs/
+$ dylibbundler -od -b -x ./builds/macos/Fingertip.app/Contents/MacOS/hnsd -d ./builds/macos/Fingertip.app/Contents/Frameworks/ -p @executable_path/../Frameworks/
 $ go build -trimpath -o ./builds/macos/Fingertip.app/Contents/MacOS/fingertip
 ```
 
