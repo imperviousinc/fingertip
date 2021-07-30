@@ -3,7 +3,6 @@ package proc
 import (
 	"bufio"
 	"fmt"
-	"github.com/buffrr/letsdane/resolver"
 	"io"
 	"log"
 	"os/exec"
@@ -20,7 +19,6 @@ type HNSProc struct {
 	rootAddr         string
 	cmd              *exec.Cmd
 	Verbose          bool
-	Client           *resolver.Stub
 	procStarted      bool
 	height           uint64
 	lastHeightUpdate time.Time
@@ -34,11 +32,6 @@ func NewHNSProc(procPath string, rootAddr, recursiveAddr string, opts ...string)
 	args := []string{"-n", rootAddr, "-r", recursiveAddr}
 	args = append(args, opts...)
 
-	rs, err := resolver.NewStub(recursiveAddr)
-	if err != nil {
-		return nil, err
-	}
-
 	if !strings.HasSuffix(procPath, processExtension) {
 		procPath += processExtension
 	}
@@ -48,9 +41,7 @@ func NewHNSProc(procPath string, rootAddr, recursiveAddr string, opts ...string)
 		args:         args,
 		resolverAddr: recursiveAddr,
 		rootAddr:     rootAddr,
-
-		Client:  rs,
-		Verbose: true,
+		Verbose:      true,
 	}
 
 	return p, nil

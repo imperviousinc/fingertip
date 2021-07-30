@@ -8,6 +8,7 @@ import (
 	"fingertip/internal/ui"
 	"fmt"
 	"github.com/buffrr/letsdane"
+	"github.com/buffrr/letsdane/resolver"
 	"github.com/emersion/go-autostart"
 	"github.com/pkg/browser"
 	"log"
@@ -21,7 +22,6 @@ import (
 
 type App struct {
 	proc             *proc.HNSProc
-	hip5             *resolvers.HIP5Resolver
 	server           *http.Server
 	config           *config.App
 	usrConfig        *config.User
@@ -251,16 +251,7 @@ func NewApp(appConfig *config.App) (*App, error) {
 
 	app.proc = hnsProc
 
-	app.hip5 = resolvers.NewHIP5Resolver(app.proc.Client, usrConfig.RootAddr, hnsProc.Synced)
-	eth, err := resolvers.NewEthereum(usrConfig.EthereumEndpoint)
-	if err != nil {
-		return nil, err
-	}
-
-	app.hip5.RegisterHandler("_eth", eth.Handler)
-	appConfig.Proxy.Resolver = app.hip5
-
-	app.server, err = newProxy(appConfig, usrConfig.ProxyAddr)
+	app.server, err = app.newProxyServer()
 	if err != nil {
 		return nil, err
 	}
@@ -268,26 +259,57 @@ func NewApp(appConfig *config.App) (*App, error) {
 	return app, nil
 }
 
-func (s *App) listen() error {
-	return s.server.ListenAndServe()
-}
-
-func (s *App) stop() {
-	s.proc.Stop()
-	s.server.Close()
-	s.server = &http.Server{
-		Addr:    s.server.Addr,
-		Handler: s.server.Handler,
-	}
-}
-
-func newProxy(c *config.App, proxyAddr string) (*http.Server, error) {
-	h, err := c.Proxy.NewHandler()
+func (a *App) NewResolver() (resolver.Resolver, error) {
+	rs, err := resolver.NewStub(a.usrConfig.RecursiveAddr)
 	if err != nil {
 		return nil, err
 	}
-	c.ProxyAddr = proxyAddr
-	server := &http.Server{Addr: c.ProxyAddr, Handler: h}
+
+	hip5 := resolvers.NewHIP5Resolver(rs, a.usrConfig.RootAddr, a.proc.Synced)
+	ethExt, err := resolvers.NewEthereum(a.usrConfig.EthereumEndpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	// Register HIP-5 handlers
+	hip5.RegisterHandler("_eth", ethExt.Handler)
+
+	return hip5, nil
+}
+
+func (a *App) listen() error {
+	return a.server.ListenAndServe()
+}
+
+func (a *App) stop() {
+	a.proc.Stop()
+	a.server.Close()
+
+	// on stop create a new server
+	// to reset any state like old cache ... etc.
+	var err error
+	if a.server, err = a.newProxyServer(); err != nil {
+		log.Fatalf("app: error creating a new proxy server: %v", err)
+	}
+}
+
+func (a *App) newProxyServer() (*http.Server, error) {
+	var err error
+
+	// add a new resolver to the proxy config
+	if a.config.Proxy.Resolver, err = a.NewResolver(); err != nil {
+		return nil, err
+	}
+
+	// initialize a new handler
+	h, err := a.config.Proxy.NewHandler()
+	if err != nil {
+		return nil, err
+	}
+
+	// copy proxy address from user specified config
+	a.config.ProxyAddr = a.usrConfig.ProxyAddr
+	server := &http.Server{Addr: a.config.ProxyAddr, Handler: h}
 	return server, nil
 }
 
