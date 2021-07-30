@@ -10,6 +10,7 @@ import (
 )
 
 var errHIP5NotSupported = errors.New("no supported hip-5 record found")
+var errNotSynced = fmt.Errorf("error: handshake resolver not fully synced")
 
 type hip5Handler func(ctx context.Context, qname string, qtype uint16, ns *dns.NS) ([]dns.RR, error)
 
@@ -20,17 +21,19 @@ type HIP5Resolver struct {
 	rootClient *dns.Client
 	queryFunc  func(ctx context.Context, name string, qtype uint16) *resolver.DNSResult
 	*resolver.Stub
+	syncCheck func() bool
 
 	// for testing
 	queryExtension func(ctx context.Context, tld string) ([]*dns.NS, error)
 }
 
-func NewHIP5Resolver(recursive *resolver.Stub, rootAddr string) *HIP5Resolver {
+func NewHIP5Resolver(recursive *resolver.Stub, rootAddr string, syncCheck func() bool) *HIP5Resolver {
 	h := &HIP5Resolver{}
 	h.Stub = recursive
 	h.queryFunc = recursive.DefaultResolver.Query
 	h.Stub.DefaultResolver.Query = h.query
 	h.rootAddr = rootAddr
+	h.syncCheck = syncCheck
 	h.rootClient = &dns.Client{
 		Net:            "udp",
 		Timeout:        5 * time.Second,
@@ -47,6 +50,14 @@ func (h *HIP5Resolver) RegisterHandler(extension string, handler hip5Handler) {
 }
 
 func (h *HIP5Resolver) query(ctx context.Context, name string, qtype uint16) *resolver.DNSResult {
+	if synced := h.syncCheck(); !synced {
+		return &resolver.DNSResult{
+			Records: nil,
+			Secure:  false,
+			Err:     errNotSynced,
+		}
+	}
+
 	tld := LastNLabels(name, 1)
 	var res *resolver.DNSResult
 

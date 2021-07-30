@@ -19,9 +19,13 @@ func TestNewHIP5Resolver(t *testing.T) {
 		},
 	}
 
+	synced := false
 	stub := &resolver.Stub{DefaultResolver: dummyResolver}
 
-	h := NewHIP5Resolver(stub, "0.0.0.0")
+	h := NewHIP5Resolver(stub, "0.0.0.0", func() bool {
+		return synced
+	})
+
 	h.queryExtension = func(ctx context.Context, tld string) ([]*dns.NS, error) {
 		if tld != "com" {
 			t.Fatalf("got tld = %s, want %s", tld, "com")
@@ -35,7 +39,16 @@ func TestNewHIP5Resolver(t *testing.T) {
 		return nil, errNoPancakes
 	})
 
-	_, _, err := h.LookupIP(context.Background(), "ip", "example.com")
+	// has no hip-5 extension but shouldn't resolve until synced
+	_, _, err := h.LookupIP(context.Background(), "ip", "example.net")
+	if !errors.Is(err, errNotSynced) {
+		t.Fatalf("got err = %v, want %v", err, errNotSynced)
+	}
+
+	// chain synced
+	synced = true
+
+	_, _, err = h.LookupIP(context.Background(), "ip", "example.com")
 	if !errors.Is(err, errNoPancakes) {
 		t.Fatalf("got err = %v, want %v", err, errNoPancakes)
 	}

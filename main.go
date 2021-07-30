@@ -251,7 +251,7 @@ func NewApp(appConfig *config.App) (*App, error) {
 
 	app.proc = hnsProc
 
-	app.hip5 = resolvers.NewHIP5Resolver(app.proc.Client, usrConfig.RootAddr)
+	app.hip5 = resolvers.NewHIP5Resolver(app.proc.Client, usrConfig.RootAddr, hnsProc.Synced)
 	eth, err := resolvers.NewEthereum(usrConfig.EthereumEndpoint)
 	if err != nil {
 		return nil, err

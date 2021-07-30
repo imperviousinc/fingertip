@@ -14,17 +14,19 @@ import (
 )
 
 type HNSProc struct {
-	path         string
-	args         []string
-	resolverAddr string
-	rootAddr     string
-	cmd          *exec.Cmd
-	Verbose      bool
-	Client       *resolver.Stub
-	procStarted  bool
-	height       uint64
-	retryCount   int
-	lastRetry    time.Time
+	path             string
+	args             []string
+	resolverAddr     string
+	rootAddr         string
+	cmd              *exec.Cmd
+	Verbose          bool
+	Client           *resolver.Stub
+	procStarted      bool
+	height           uint64
+	lastHeightUpdate time.Time
+	synced           bool
+	retryCount       int
+	lastRetry        time.Time
 	sync.RWMutex
 }
 
@@ -177,7 +179,12 @@ func (h *HNSProc) SetHeight(height uint64) {
 	h.Lock()
 	defer h.Unlock()
 
+	if h.height == height {
+		return
+	}
+
 	h.height = height
+	h.lastHeightUpdate = time.Now()
 }
 
 func (h *HNSProc) GetHeight() uint64 {
@@ -185,6 +192,20 @@ func (h *HNSProc) GetHeight() uint64 {
 	defer h.RUnlock()
 
 	return h.height
+}
+
+func (h *HNSProc) Synced() bool {
+	h.RLock()
+	defer h.RUnlock()
+
+	if h.synced {
+		return true
+	}
+
+	h.synced = !h.lastHeightUpdate.IsZero() &&
+		time.Since(h.lastHeightUpdate) > 20*time.Second
+
+	return h.synced
 }
 
 func (h *HNSProc) Start(stopErr chan<- error) {
@@ -206,4 +227,6 @@ func (h *HNSProc) Stop() {
 	h.killProcess()
 	h.procStarted = false
 	h.height = 0
+	h.lastHeightUpdate = time.Time{}
+	h.synced = false
 }
