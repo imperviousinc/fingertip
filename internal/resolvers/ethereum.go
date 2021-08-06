@@ -85,12 +85,28 @@ func (e *Ethereum) Resolve(resolverAddress common.Address, qname string, qtype u
 		return nil, err
 	}
 
-	res, err := resolver.DnsRecord(nil, nodeHash, qnameHash, qtype)
+	res, err := e.queryWithResolver(resolver, nodeHash, qnameHash, qtype)
 	if err != nil {
 		return nil, err
 	}
 
 	return unpackRRSet(res), nil
+}
+
+func (e *Ethereum) queryWithResolver(resolver *DNSResolver, nodeHash, name [32]byte, qtype uint16) ([]byte, error) {
+	res, err := resolver.DnsRecord(nil, nodeHash, name, qtype)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(res) == 0 {
+		// attempt to find CNAME records
+		if res, err = resolver.DnsRecord(nil, nodeHash, name, dns.TypeCNAME); err != nil {
+			return nil, err
+		}
+	}
+
+	return res, nil
 }
 
 func (e *Ethereum) Handler(ctx context.Context, qname string, qtype uint16, ns *dns.NS) ([]dns.RR, error) {
