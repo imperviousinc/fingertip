@@ -1,0 +1,5 @@
+*.AppImage
+
+appdir/*
+!appdir/usr
+appdir/usr/lib
