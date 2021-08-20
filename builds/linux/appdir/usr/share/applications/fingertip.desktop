@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Fingertip
+Comment=A decentralized Handshake resolver
+Exec=fingertip
+Icon=fingertip
+Categories=Network;

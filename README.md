@@ -58,7 +58,11 @@ $ go build -trimpath -o ./builds/windows/  -ldflags "-H windowsgui"
 
 ### Linux
 
-TODO
+Follow [hnsd](https://github.com/handshake-org/hnsd) build instructions for Linux. Copy hnsd binary into the `fingertip/builds/linux/appdir/usr/bin` directory.
+
+```
+$ go build -trimpath -o ./builds/linux/appdir/usr/bin/
+```
 
 
 ## Credits
