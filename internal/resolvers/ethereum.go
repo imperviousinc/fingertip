@@ -74,18 +74,13 @@ func (e *Ethereum) Resolve(resolverAddress common.Address, qname string, qtype u
 	}
 
 	qname = dns.CanonicalName(qname)
-	qnameHash, err := hashDnsName(qname)
-	if err != nil {
-		return nil, err
-	}
-
 	node := toNode(qname)
 	nodeHash, err := NameHash(node)
 	if err != nil {
 		return nil, err
 	}
 
-	res, err := e.queryWithResolver(resolver, nodeHash, qnameHash, qtype)
+	res, err := e.queryWithResolver(resolver, nodeHash, qname, qtype)
 	if err != nil {
 		return nil, err
 	}
@@ -93,27 +88,76 @@ func (e *Ethereum) Resolve(resolverAddress common.Address, qname string, qtype u
 	return unpackRRSet(res), nil
 }
 
-func (e *Ethereum) queryWithResolver(resolver *DNSResolver, nodeHash, name [32]byte, qtype uint16) ([]byte, error) {
-	res, err := resolver.DnsRecord(nil, nodeHash, name, qtype)
+func (e *Ethereum) dnsRecord(resolver *DNSResolver, node [32]byte, qname string, qtype uint16) ([]byte, error) {
+	qnameHash, err := hashDnsName(qname)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(res) == 0 {
-		// attempt to find CNAME records
-		if res, err = resolver.DnsRecord(nil, nodeHash, name, dns.TypeCNAME); err != nil {
+	return resolver.DnsRecord(nil, node, qnameHash, qtype)
+}
+
+func (e *Ethereum) queryWithResolver(resolver *DNSResolver, nodeHash [32]byte, qname string, qtype uint16) ([]byte, error) {
+	rawRecords, err := e.dnsRecord(resolver, nodeHash, qname, qtype)
+	if err != nil {
+		return nil, err
+	}
+
+	maxLabels := dns.CountLabel(qname)
+	if maxLabels > 3 {
+		maxLabels = 3
+	}
+
+	// Look for NS records up to maxLabels
+	if len(rawRecords) == 0 {
+		labels := 2
+		for {
+			if labels > maxLabels {
+				break
+			}
+
+			name := dns.Fqdn(LastNLabels(qname, labels))
+			labels++
+
+			if rawRecords, err = e.dnsRecord(resolver, nodeHash, name, dns.TypeNS); err != nil {
+				return nil, err
+			}
+
+			// a delegation exists check if it's signed
+			if len(rawRecords) > 0 {
+				var dsSet []byte
+				if dsSet, err = e.dnsRecord(resolver, nodeHash, name, dns.TypeDS); err != nil {
+					return nil, err
+				}
+
+				if len(dsSet) > 0 {
+					rawRecords = append(rawRecords, dsSet...)
+				}
+
+				return rawRecords, nil
+			}
+		}
+	}
+
+	if len(rawRecords) == 0 {
+		// no records for original qname and no delegations
+		// check if a CNAME exists
+		if rawRecords, err = e.dnsRecord(resolver, nodeHash, qname, dns.TypeCNAME); err != nil {
 			return nil, err
 		}
 	}
 
-	return res, nil
+	return rawRecords, nil
 }
 
 func (e *Ethereum) Handler(ctx context.Context, qname string, qtype uint16, ns *dns.NS) ([]dns.RR, error) {
 	registryAddress := FirstNLabels(ns.Ns, 1)
 	node := toNode(qname)
 
-	resolverAddr, err := e.GetResolverAddress(node, registryAddress)
+	var resolverAddr common.Address
+	var err error
+
+	resolverAddr, err = e.GetResolverAddress(node, registryAddress)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get resolver address from registry %s: %v", registryAddress, err)
 	}

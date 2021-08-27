@@ -3,9 +3,11 @@ package resolvers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/buffrr/letsdane/resolver"
 	"github.com/miekg/dns"
 	"testing"
+	"time"
 )
 
 func TestNewHIP5Resolver(t *testing.T) {
@@ -26,13 +28,8 @@ func TestNewHIP5Resolver(t *testing.T) {
 		return synced
 	})
 
-	h.queryExtension = func(ctx context.Context, tld string) ([]*dns.NS, error) {
-		if tld != "com" {
-			t.Fatalf("got tld = %s, want %s", tld, "com")
-		}
-
-		return []*dns.NS{{Ns: "bQHW1R4+11NRs0iWlCxlwyZZ1BxFVXqkNt+gszVTVl0=._example."}}, nil
-	}
+	h.exchangeRoot = testExchangeRootFunc(t, "com.",
+		[]dns.RR{testRR("forever. 300 IN NS root-extension._example.")})
 
 	var errNoPancakes = errors.New("couldn't make pancakes")
 	h.RegisterHandler("_example", func(ctx context.Context, qname string, qtype uint16, ns *dns.NS) ([]dns.RR, error) {
@@ -63,6 +60,20 @@ func testRR(str string) dns.RR {
 	return rr
 }
 
+type rootFunc func(ctx context.Context, m *dns.Msg, a string) (r *dns.Msg, rtt time.Duration, err error)
+
+func testExchangeRootFunc(t *testing.T, tld string, nsRRs []dns.RR) rootFunc {
+	return func(ctx context.Context, m *dns.Msg, a string) (r *dns.Msg, rtt time.Duration, err error) {
+		m.Rcode = dns.RcodeSuccess
+		if m.Question[0].Name != tld {
+			t.Fatalf("got tld = %s, want %s", m.Question[0].Name, tld)
+		}
+
+		m.Ns = nsRRs
+		return m, 0, nil
+	}
+}
+
 func TestHIP5CNames(t *testing.T) {
 	recursive := map[string]*resolver.DNSResult{
 		"example.com.": {
@@ -88,7 +99,6 @@ func TestHIP5CNames(t *testing.T) {
 		"hello.forever.":             {testRR("hello.forever. 300 IN CNAME example.com.")},
 		"hello2.forever.":            {testRR("hello2.forever. 300 IN CNAME hello.forever.")},
 		"hello3.forever.":            {testRR("hello3.forever. 300 IN CNAME hello2.forever.")},
-		"hello4.forever.":            {testRR("hello4.forever. 300 IN CNAME hello3.forever.")},
 		"redirect.forever.":          {testRR("redirect.forever. 300 IN CNAME secure.forever.")},
 		"redirect-insecure.forever.": {testRR("redirect-insecure.forever. 300 IN CNAME hello.forever.")},
 		"indirect-loop.forever.":     {testRR("indirect-loop.forever. 300 IN CNAME loop.forever.")},
@@ -120,12 +130,19 @@ func TestHIP5CNames(t *testing.T) {
 		"indirect-loop.forever.": {
 			Err: errBadCNAMETarget,
 		},
-		"hello3.forever": {
+		"hello3.forever.": {
 			Records: recursive["example.com."].Records,
 		},
-		"hello4.forever": {
+		"hello12.forever.": {
 			Err: errMaxDepthReached,
 		},
+	}
+
+	// long CNAME chain
+	for i := 4; i < 13; i++ {
+		name := fmt.Sprintf("hello%d.forever.", i)
+		prev := fmt.Sprintf("hello%d.forever.", i-1)
+		hip5Data[name] = []dns.RR{testRR(name + " 300 IN CNAME " + prev)}
 	}
 
 	dummyResolver := resolver.DefaultResolver{
@@ -148,21 +165,15 @@ func TestHIP5CNames(t *testing.T) {
 		return true
 	})
 
-	h.queryExtension = func(ctx context.Context, tld string) ([]*dns.NS, error) {
-		if tld != "forever" {
-			t.Fatalf("got tld = %s, want %s", tld, "forever")
-		}
-
-		return []*dns.NS{{Ns: "bQHW1R4+11NRs0iWlCxlwyZZ1BxFVXqkNt+gszVTVl0=._example."}}, nil
-	}
+	h.exchangeRoot = testExchangeRootFunc(t, "forever.",
+		[]dns.RR{testRR("forever. 300 IN NS bQHW1R4+11NRs0iWlCxlwyZZ1BxFVXqkNt+gszVTVl0=._example.")})
 
 	h.RegisterHandler("_example", func(ctx context.Context, qname string, qtype uint16, ns *dns.NS) ([]dns.RR, error) {
 		if ans, ok := hip5Data[qname]; ok {
 			return ans, nil
 		}
 
-		t.Fatalf("unexpected qname = %s", qname)
-		return nil, nil
+		return nil, fmt.Errorf("unexpected qname = %s", qname)
 	})
 
 	for name, test := range tests {

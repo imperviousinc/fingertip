@@ -112,6 +112,10 @@ func hashDnsName(name string) ([32]byte, error) {
 }
 
 func unpackRRSet(raw []byte) []dns.RR {
+	if len(raw) == 0 {
+		return nil
+	}
+	
 	var (
 		rrs   []dns.RR
 		rr    dns.RR
