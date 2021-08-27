@@ -67,12 +67,26 @@ func (e *Ethereum) GetResolverAddress(node, registryAddress string) (common.Addr
 	return addr, nil
 }
 
+func isZero(addr common.Address) bool {
+	for _, b := range addr {
+		if b != 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (e *Ethereum) Resolve(resolverAddress common.Address, qname string, qtype uint16) ([]dns.RR, error) {
+	if isZero(resolverAddress) {
+		return nil, nil
+	}
+
 	resolver, err := NewDNSResolver(resolverAddress, e.client)
 	if err != nil {
 		return nil, err
 	}
-
+	
 	qname = dns.CanonicalName(qname)
 	node := toNode(qname)
 	nodeHash, err := NameHash(node)
