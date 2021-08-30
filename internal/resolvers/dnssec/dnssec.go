@@ -452,7 +452,7 @@ func Verify(msg *dns.Msg, zone, qname string, qtype uint16, trustedKeys map[uint
 		return verifyNameError(msg, zone, qname)
 	}
 
-	return false, fmt.Errorf("verify error: unexpected rcode %v", msg.Rcode)
+	return false, fmt.Errorf("unexpected rcode %v", msg.Rcode)
 }
 
 // verifyAnswer pass a verified msg with fqdn canonical qname
@@ -651,9 +651,15 @@ func verifyNameError(msg *dns.Msg, zone, qname string) (bool, error) {
 				nameProof = true
 			}
 
-			// TODO: handle empty non-terminals
+			if c, err := canonicalNameCompare(nsec.Header().Name, nsec.NextDomain); err == nil && c < 0 {
+				if IsSubDomainStrict(qname, nsec.NextDomain) {
+					wildcardProof = true
+					continue
+				}
+			}
+
 			if !wildcardProof {
-				// find closest wildcardProof that covers qname
+				// find closest wildcard proof that covers qname
 				i := 1
 				for {
 					if len(qnameParts) < i {
@@ -679,7 +685,7 @@ func verifyNameError(msg *dns.Msg, zone, qname string) (bool, error) {
 	}
 
 	if !wildcardProof {
-		return false, fmt.Errorf("missing wildcardProof proof")
+		return false, fmt.Errorf("missing wildcard proof")
 	}
 
 	return true, nil

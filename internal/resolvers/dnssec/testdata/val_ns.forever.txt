@@ -172,8 +172,7 @@ delegate-secure.ns.forever. 300 IN      NSEC    *.wild.ns.forever. NS DS RRSIG N
 delegate-secure.ns.forever. 300 IN      RRSIG   NSEC 13 3 300 20210830204245 20210816191245 45607 ns.forever. JC6x2z2WutUOIiBPAze4O4WRVcwBG+qi2077mWf0H4aIBKaoLRf6KmqY uqw/BjNgXJnjysWjYrhdu0IO+Gbniw==
 *.wild.ns.forever.      300     IN      RRSIG   NSEC 13 3 300 20210830204245 20210816191245 45607 ns.forever. h0FURI6vcAB4WD9uSjTml5H5EGkIOkJgpuNtu8CqXX/UbCfxD918Ky96 5DF+Pa8AUvnEOO/jgcl72vPq71CLnA==
 
-; ideally this should work but empty non-terminals are not handled yet
-[RESULT] secure: 0, bogus: 1
+[RESULT] secure: 1, bogus: 0
 [TEST_END]
 
 [TEST_BEGIN] name: nodata but the type exists
