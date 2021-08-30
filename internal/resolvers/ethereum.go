@@ -6,6 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/miekg/dns"
+	"strings"
 	"time"
 )
 
@@ -24,7 +25,15 @@ var ethNS = []*dns.NS{
 
 type Ethereum struct {
 	client *ethclient.Client
+	// resolver cache
 	rCache *cache
+	// query cache
+	qCache map[uint16]*cache
+}
+
+type queryCacheData struct {
+	registry  string
+	rrs []dns.RR
 }
 
 func NewEthereum(rawurl string) (*Ethereum, error) {
@@ -33,10 +42,19 @@ func NewEthereum(rawurl string) (*Ethereum, error) {
 		return nil, err
 	}
 
-	return &Ethereum{
+	e := &Ethereum{
 		client: conn,
 		rCache: newCache(200),
-	}, nil
+		qCache: make(map[uint16]*cache),
+	}
+
+	// caching lower level lookups only
+	// other types should be cached by users
+	// of this client
+	e.qCache[dns.TypeCNAME] = newCache(200)
+	e.qCache[dns.TypeNS] = newCache(500)
+	e.qCache[dns.TypeDS] = newCache(500)
+	return e, nil
 }
 
 func (e *Ethereum) GetResolverAddress(node, registryAddress string) (common.Address, error) {
@@ -77,16 +95,16 @@ func isZero(addr common.Address) bool {
 	return true
 }
 
-func (e *Ethereum) Resolve(resolverAddress common.Address, qname string, qtype uint16) ([]dns.RR, error) {
-	if isZero(resolverAddress) {
+func (e *Ethereum) Resolve(registry string, ra common.Address, qname string, qtype uint16) ([]dns.RR, error) {
+	if isZero(ra) {
 		return nil, nil
 	}
 
-	resolver, err := NewDNSResolver(resolverAddress, e.client)
+	r, err := NewDNSResolver(ra, e.client)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	qname = dns.CanonicalName(qname)
 	node := toNode(qname)
 	nodeHash, err := NameHash(node)
@@ -94,25 +112,70 @@ func (e *Ethereum) Resolve(resolverAddress common.Address, qname string, qtype u
 		return nil, err
 	}
 
-	res, err := e.queryWithResolver(resolver, nodeHash, qname, qtype)
+	res, err := e.queryWithResolver(registry, r, nodeHash, qname, qtype)
 	if err != nil {
 		return nil, err
 	}
 
-	return unpackRRSet(res), nil
+	return res, nil
 }
 
-func (e *Ethereum) dnsRecord(resolver *DNSResolver, node [32]byte, qname string, qtype uint16) ([]byte, error) {
+func (e *Ethereum) checkQueryCache(registry string, qname string, qtype uint16) ([]dns.RR, bool) {
+	c, ok := e.qCache[qtype]
+	if !ok {
+		return nil, false
+	}
+	entry, ok := c.get(qname)
+	if !ok {
+		return nil, false
+	}
+
+	if time.Now().After(entry.ttl) {
+		c.remove(qname)
+		return nil, false
+	}
+
+	m := entry.msg.(*queryCacheData)
+	if !strings.EqualFold(m.registry, registry) {
+		c.remove(qname)
+		return nil, false
+	}
+
+	return m.rrs, true
+}
+
+func (e *Ethereum) dnsRecord(registry string, r *DNSResolver, node [32]byte, qname string, qtype uint16) ([]dns.RR, error) {
+	if rrs, ok := e.checkQueryCache(registry, qname, qtype); ok {
+		return rrs, nil
+	}
+
 	qnameHash, err := hashDnsName(qname)
 	if err != nil {
 		return nil, err
 	}
 
-	return resolver.DnsRecord(nil, node, qnameHash, qtype)
+	raw, err := r.DnsRecord(nil, node, qnameHash, qtype)
+	if err != nil {
+		return nil, err
+	}
+
+	rrs := unpackRRSet(raw)
+
+	if qtype == dns.TypeCNAME || qtype == dns.TypeNS || qtype == dns.TypeDS {
+		e.qCache[qtype].set(qname, &entry{
+			msg: &queryCacheData{
+				registry:  registry,
+				rrs: rrs,
+			},
+			ttl: time.Now().Add(getTTL(rrs)),
+		})
+	}
+
+	return rrs, nil
 }
 
-func (e *Ethereum) queryWithResolver(resolver *DNSResolver, nodeHash [32]byte, qname string, qtype uint16) ([]byte, error) {
-	rawRecords, err := e.dnsRecord(resolver, nodeHash, qname, qtype)
+func (e *Ethereum) queryWithResolver(registry string, r *DNSResolver, nodeHash [32]byte, qname string, qtype uint16) ([]dns.RR, error) {
+	rawRecords, err := e.dnsRecord(registry, r, nodeHash, qname, qtype)
 	if err != nil {
 		return nil, err
 	}
@@ -133,14 +196,14 @@ func (e *Ethereum) queryWithResolver(resolver *DNSResolver, nodeHash [32]byte, q
 			name := dns.Fqdn(LastNLabels(qname, labels))
 			labels++
 
-			if rawRecords, err = e.dnsRecord(resolver, nodeHash, name, dns.TypeNS); err != nil {
+			if rawRecords, err = e.dnsRecord(registry, r, nodeHash, name, dns.TypeNS); err != nil {
 				return nil, err
 			}
 
 			// a delegation exists check if it's signed
 			if len(rawRecords) > 0 {
-				var dsSet []byte
-				if dsSet, err = e.dnsRecord(resolver, nodeHash, name, dns.TypeDS); err != nil {
+				var dsSet []dns.RR
+				if dsSet, err = e.dnsRecord(registry, r, nodeHash, name, dns.TypeDS); err != nil {
 					return nil, err
 				}
 
@@ -156,7 +219,7 @@ func (e *Ethereum) queryWithResolver(resolver *DNSResolver, nodeHash [32]byte, q
 	if len(rawRecords) == 0 {
 		// no records for original qname and no delegations
 		// check if a CNAME exists
-		if rawRecords, err = e.dnsRecord(resolver, nodeHash, qname, dns.TypeCNAME); err != nil {
+		if rawRecords, err = e.dnsRecord(registry, r, nodeHash, qname, dns.TypeCNAME); err != nil {
 			return nil, err
 		}
 	}
@@ -176,5 +239,5 @@ func (e *Ethereum) Handler(ctx context.Context, qname string, qtype uint16, ns *
 		return nil, fmt.Errorf("unable to get resolver address from registry %s: %v", registryAddress, err)
 	}
 
-	return e.Resolve(resolverAddr, qname, qtype)
+	return e.Resolve(registryAddress, resolverAddr, qname, qtype)
 }

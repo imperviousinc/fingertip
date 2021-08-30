@@ -12,6 +12,7 @@ import (
 	"golang.org/x/crypto/sha3"
 	"golang.org/x/net/idna"
 	"strings"
+	"time"
 )
 
 var p = idna.New(idna.MapForLookup(), idna.StrictDomainName(false), idna.Transitional(false))
@@ -115,7 +116,7 @@ func unpackRRSet(raw []byte) []dns.RR {
 	if len(raw) == 0 {
 		return nil
 	}
-	
+
 	var (
 		rrs   []dns.RR
 		rr    dns.RR
@@ -164,4 +165,35 @@ func FirstNLabels(name string, n int) string {
 	}
 
 	return strings.Join(parts[:n], ".")
+}
+
+func nsToRR(ns []*dns.NS) (rrs []dns.RR) {
+	for _, rr := range ns {
+		rrs = append(rrs, rr)
+	}
+	return
+}
+
+// getTTL finds the TTL of an RRSet
+// if records have different TTLs it will return the min
+// https://datatracker.ietf.org/doc/html/rfc2181#section-5
+func getTTL(rrs []dns.RR) time.Duration {
+	var ttl uint32 = 10800
+	for _, rr := range rrs {
+		if ttl > rr.Header().Ttl {
+			ttl = rr.Header().Ttl
+		}
+	}
+
+	// min ttl
+	if ttl < 60 {
+		return time.Minute
+	}
+
+	// max ttl
+	if ttl > 10800 {
+		return time.Hour * 3
+	}
+
+	return time.Duration(ttl) * time.Second
 }

@@ -27,6 +27,8 @@ type HIP5Resolver struct {
 	rootAddr   string
 	rootClient *dns.Client
 	syncCheck  func() bool
+	tldCache   *cache
+	keyCache   *cache
 
 	// stub resolver with no hip-5 support
 	stubQuery func(ctx context.Context, name string, qtype uint16) *resolver.DNSResult
@@ -45,6 +47,8 @@ func NewHIP5Resolver(stub *resolver.Stub, rootAddr string, syncCheck func() bool
 	h.Stub = stub
 	h.syncCheck = syncCheck
 	h.handlers = make(map[string]hip5Handler)
+	h.tldCache = newCache(30)
+	h.keyCache = newCache(200)
 
 	// using the same query function used by stub
 	// to benefit from caching
@@ -77,6 +81,20 @@ func (h *HIP5Resolver) query(ctx context.Context, name string, qtype uint16) *re
 	return h.queryInternal(ctx, name, qtype, 0)
 }
 
+func (h *HIP5Resolver) checkTLDCache(tld string) ([]*dns.NS, bool) {
+	e, ok := h.tldCache.get(tld)
+	if !ok {
+		return nil, false
+	}
+
+	if time.Now().After(e.ttl) {
+		h.tldCache.remove(tld)
+		return nil, false
+	}
+
+	return e.msg.([]*dns.NS), true
+}
+
 func (h *HIP5Resolver) queryInternal(ctx context.Context, name string, qtype uint16, depth int) *resolver.DNSResult {
 	if synced := h.syncCheck(); !synced {
 		return &resolver.DNSResult{
@@ -87,17 +105,26 @@ func (h *HIP5Resolver) queryInternal(ctx context.Context, name string, qtype uin
 	}
 
 	name = dns.CanonicalName(name)
-	tld := LastNLabels(name, 1)
+	tld := dns.Fqdn(LastNLabels(name, 1))
 	var res *resolver.DNSResult
 
-	if tld != "eth" {
+	known := false
+	if tld == "eth." {
+		known = true
+	} else {
+		rrs, ok := h.checkTLDCache(tld)
+		known = ok && len(rrs) > 0
+	}
+
+	if !known {
 		res = h.stubQuery(ctx, name, qtype)
 		if res.Err == nil || !errors.Is(res.Err, resolver.ErrServFail) {
 			return res
 		}
 	}
 
-	// .eth or SERVFAIL could be a HIP-5 record
+	// Either its a known HIP-5 tld
+	// or stub couldn't resolve it
 	rrs, secure, errHip5 := h.attemptHIP5Resolution(ctx, tld, name, qtype, depth)
 	if errHip5 == nil {
 		return &resolver.DNSResult{
@@ -107,6 +134,8 @@ func (h *HIP5Resolver) queryInternal(ctx context.Context, name string, qtype uin
 		}
 	}
 
+	// return the original failed response
+	// from the stub unmodified
 	if res != nil && errHip5 == errHIP5NotSupported {
 		return res
 	}
@@ -120,7 +149,7 @@ func (h *HIP5Resolver) queryInternal(ctx context.Context, name string, qtype uin
 }
 
 func (h *HIP5Resolver) attemptHIP5Resolution(ctx context.Context, tld, qname string, qtype uint16, depth int) ([]dns.RR, bool, error) {
-	if tld == "" {
+	if tld == "." {
 		return nil, false, fmt.Errorf("no hip-5 records in root zone apex")
 	}
 
@@ -308,7 +337,7 @@ func (h *HIP5Resolver) resolveNS(ctx context.Context, rrs []*dns.NS, ds []dns.RR
 
 	if len(ds) > 0 {
 		if keys, err = h.queryDNSKeys(ctx, nsIPs, ds, delegatedName); err != nil {
-			return nil, false, err
+			return nil, false, fmt.Errorf("dnskey error: %v", err)
 		}
 	}
 
@@ -317,7 +346,7 @@ func (h *HIP5Resolver) resolveNS(ctx context.Context, rrs []*dns.NS, ds []dns.RR
 
 	if signed {
 		if secure, err = dnssec.Verify(msg, delegatedName, qname, qtype, keys, time.Now(), 2048); err != nil {
-			return nil, false, err
+			return nil, false, fmt.Errorf("dnssec verify error: %v", err)
 		}
 	}
 
@@ -332,12 +361,39 @@ func (h *HIP5Resolver) resolveNS(ctx context.Context, rrs []*dns.NS, ds []dns.RR
 }
 
 func (h *HIP5Resolver) queryDNSKeys(ctx context.Context, ips []net.IP, ds []dns.RR, delegatedName string) (map[uint16]*dns.DNSKEY, error) {
+	if entry, ok := h.keyCache.get(delegatedName); ok {
+		if time.Now().Before(entry.ttl) {
+			msg := new(dns.Msg)
+			msg.Rcode = dns.RcodeSuccess
+			msg.Answer = entry.msg.([]dns.RR)
+
+			keys, err := dnssec.VerifyDNSKeys(delegatedName, msg, ds, time.Now(), 2048)
+			if err == nil {
+				return keys, nil
+			}
+		}
+		h.keyCache.remove(delegatedName)
+	}
+
 	msg, err := h.exchangeNS(ctx, ips, delegatedName, dns.TypeDNSKEY)
 	if err != nil {
 		return nil, err
 	}
 
-	return dnssec.VerifyDNSKeys(delegatedName, msg, ds, time.Now(), 2048)
+	keys, err := dnssec.VerifyDNSKeys(delegatedName, msg, ds, time.Now(), 2048)
+	if err != nil {
+		return nil, err
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	h.keyCache.set(delegatedName, &entry{
+		msg: msg.Answer,
+		ttl: time.Now().Add(getTTL(msg.Answer)),
+	})
+
+	return keys, nil
 }
 
 func (h *HIP5Resolver) exchangeNS(ctx context.Context, ips []net.IP, qname string, qtype uint16) (res *dns.Msg, err error) {
@@ -382,9 +438,16 @@ func (h *HIP5Resolver) runHandlers(ctx context.Context, extensions []*dns.NS, qn
 }
 
 func (h *HIP5Resolver) lookupExtensions(ctx context.Context, tld string) ([]*dns.NS, error) {
-	tld = dns.Fqdn(tld)
+	if !dns.IsFqdn(tld) {
+		return nil, errors.New("tld must be fqdn")
+	}
+
 	if tld == "eth." {
 		return ethNS, nil
+	}
+
+	if rrs, ok := h.checkTLDCache(tld); ok {
+		return rrs, nil
 	}
 
 	m := new(dns.Msg)
@@ -406,6 +469,7 @@ func (h *HIP5Resolver) lookupExtensions(ctx context.Context, tld string) ([]*dns
 	}
 
 	var answer []*dns.NS
+
 	for _, rr := range r.Ns {
 		if ns, ok := rr.(*dns.NS); ok {
 			ending := LastNLabels(ns.Ns, 1)
@@ -415,6 +479,15 @@ func (h *HIP5Resolver) lookupExtensions(ctx context.Context, tld string) ([]*dns
 				answer = append(answer, ns)
 			}
 		}
+	}
+
+	// only cache positive answers
+	if len(answer) > 0 {
+		ttl := getTTL(nsToRR(answer))
+		h.tldCache.set(tld, &entry{
+			msg: answer,
+			ttl: time.Now().Add(ttl),
+		})
 	}
 
 	return answer, nil
