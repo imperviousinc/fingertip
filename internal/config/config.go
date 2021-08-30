@@ -230,9 +230,9 @@ func GetProxyURL(addr string) string {
 }
 
 func init() {
-	// Skip reserved names in RFC2606
+	// Skip reserved names in RFC2606 and special use TLDs such as .local
 	// https://datatracker.ietf.org/doc/html/rfc2606
-	var testNames = []string{"localhost", "test", "invalid", "example"}
+	var testNames = []string{"localhost", "test", "invalid", "example", "local"}
 	for _, name := range testNames {
 		nameConstraints[name] = struct{}{}
 	}
