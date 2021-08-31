@@ -5,7 +5,6 @@ import (
 	"fingertip/internal/ui/icon"
 	"fmt"
 	"github.com/getlantern/systray"
-	"github.com/sqweek/dialog"
 	"sync"
 )
 
@@ -93,14 +92,6 @@ func (s *State) UpdateUI() {
 	} else {
 		s.openAtLogin.Uncheck()
 	}
-}
-
-func ShowErrorDlg(err string) {
-	dialog.Message("%s", err).Title("Error").Error()
-}
-
-func ShowYesNoDlg(msg string) bool {
-	return dialog.Message("%s", msg).Title("Confirmation").YesNo()
 }
 
 func (s *State) toggleStarted() bool {
