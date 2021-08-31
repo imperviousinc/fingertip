@@ -32,8 +32,8 @@ type Ethereum struct {
 }
 
 type queryCacheData struct {
-	registry  string
-	rrs []dns.RR
+	registry string
+	rrs      []dns.RR
 }
 
 func NewEthereum(rawurl string) (*Ethereum, error) {
@@ -164,8 +164,8 @@ func (e *Ethereum) dnsRecord(registry string, r *DNSResolver, node [32]byte, qna
 	if qtype == dns.TypeCNAME || qtype == dns.TypeNS || qtype == dns.TypeDS {
 		e.qCache[qtype].set(qname, &entry{
 			msg: &queryCacheData{
-				registry:  registry,
-				rrs: rrs,
+				registry: registry,
+				rrs:      rrs,
 			},
 			ttl: time.Now().Add(getTTL(rrs)),
 		})
