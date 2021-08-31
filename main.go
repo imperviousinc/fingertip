@@ -20,6 +20,8 @@ import (
 	"time"
 )
 
+const Version = "0.0.2"
+
 type App struct {
 	proc             *proc.HNSProc
 	server           *http.Server
@@ -41,6 +43,8 @@ func setupApp() *App {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	c.Version = Version
 
 	c.DNSProcPath, err = getProcPath()
 	if err != nil {
@@ -324,6 +328,8 @@ func getProcPath() (string, error) {
 }
 
 func init() {
-	// set version used in go.mod
-	letsdane.Version = "0.6-fingertip"
+	// letsdane shows the version name
+	// in the footer on errors
+	// 0.6 is the version used in go.mod
+	letsdane.Version = fmt.Sprintf("0.6 - fingertip (v%s)", Version)
 }

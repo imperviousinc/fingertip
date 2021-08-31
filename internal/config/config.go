@@ -28,6 +28,7 @@ type App struct {
 	DNSProcPath string
 	Proxy       letsdane.Config
 	ProxyAddr   string
+	Version     string
 }
 
 func getOrCreateDir() (string, error) {
@@ -191,6 +192,7 @@ func (c *contentHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			CertPath: c.config.CertPath,
 			CertLink: url + "/" + CertFileName,
 			PACLink:  url + "/proxy.pac",
+			Version:  c.config.Version,
 		})
 		return
 	}
