@@ -13,4 +13,5 @@ require (
 	github.com/sqweek/dialog v0.0.0-20210702151303-c326b49d3f01
 	golang.org/x/crypto v0.0.0-20210322153248-0c34fe9e7dc2
 	golang.org/x/net v0.0.0-20210805182204-aaa1db679c0d
+	golang.org/x/sys v0.0.0-20210906170528-6f6e22806c34
 )

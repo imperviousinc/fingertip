@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fingertip/internal/config"
+	"fingertip/internal/config/auto"
 	"fingertip/internal/resolvers"
 	"fingertip/internal/resolvers/proc"
 	"fingertip/internal/ui"
@@ -66,6 +67,68 @@ func onBoardingSeen(name string) bool {
 	return false
 }
 
+func autoConfigure(app *App, checked, onBoarded bool) bool {
+	if !auto.Supported() {
+		return false
+	}
+
+	autoURL := app.proxyURL + "/proxy.pac"
+
+	if checked {
+		confirm := ui.ShowYesNoDlg("Remove Fingertip configuration settings?")
+		var err error
+		if confirm {
+			_ = auto.UninstallAutoProxy()
+			err = auto.UninstallCert(app.config.CertPath)
+		}
+
+		return !confirm || err != nil
+	}
+
+	confirm := ui.ShowYesNoDlg("Automatically configure Fingertip? This allows Fingertip to work with Chrome, Safari and other apps that use the OS trust store and proxy settings.")
+	if !confirm {
+		// if this is the first time show
+		// manual setup instructions instead
+		if !onBoarded {
+			ui.OnOpenSetup()
+		}
+		return false
+	}
+
+	status, err := auto.GetProxyStatus(autoURL)
+	if err != nil {
+		ui.ShowErrorDlg(err.Error())
+		return false
+	}
+
+	// if there are existing proxy settings
+	// its better to avoid messing with them
+	if status == auto.ProxyStatusConflict {
+		ui.ShowErrorDlg("Auto configuration failed your OS has existing proxy settings")
+		return false
+	}
+
+	if status != auto.ProxyStatusInstalled {
+		if err := auto.InstallAutoProxy(autoURL); err != nil {
+			ui.ShowErrorDlg(err.Error())
+			return false
+		}
+	}
+
+	if err := auto.InstallCert(app.config.CertPath); err != nil {
+		ui.ShowErrorDlg(err.Error())
+		return false
+	}
+
+	// Enable open at login
+	if !ui.Data.OpenAtLogin() {
+		enable := ui.OnAutostart(false)
+		ui.Data.SetOpenAtLogin(enable)
+	}
+
+	return true
+}
+
 func main() {
 	var err error
 	app := setupApp()
@@ -94,6 +157,9 @@ func main() {
 
 	start := func() {
 		app.proc.Start(hnsErrCh)
+		ui.Data.SetOptionsEnabled(true)
+		ui.Data.SetStarted(true)
+
 		go func() {
 			serverErrCh <- app.listen()
 		}()
@@ -108,13 +174,21 @@ func main() {
 				f.Close()
 			}
 
-			browser.OpenURL(app.proxyURL)
+			ui.Data.SetAutoConfig(autoConfigure(app, false, false))
+			onBoarded = true
 		}()
 	}
 
-	ui.OnStart(start)
+	ui.OnStart = start
+	ui.OnConfigureOS = func(checked bool) bool {
+		return autoConfigure(app, checked, onBoarded)
+	}
 
-	ui.OnAutostart(func(checked bool) bool {
+	ui.OnOpenSetup = func() {
+		browser.OpenURL(app.proxyURL)
+	}
+
+	ui.OnAutostart = func(checked bool) bool {
 		if checked {
 			err := app.autostart.Disable()
 			if err != nil {
@@ -149,7 +223,7 @@ func main() {
 		}
 
 		return true
-	})
+	}
 
 	ticker := time.NewTicker(100 * time.Millisecond)
 
@@ -166,7 +240,6 @@ func main() {
 
 				app.stop()
 				ui.Data.SetStarted(false)
-				ui.Data.UpdateUI()
 			case err := <-hnsErrCh:
 				if !app.proc.Started() {
 					continue
@@ -204,27 +277,41 @@ func main() {
 		}
 	}()
 
-	ui.OnStop(func() {
+	ui.OnStop = func() {
 		app.stop()
-	})
+		ui.Data.SetOptionsEnabled(false)
+		ui.Data.SetStarted(false)
+	}
 
-	ui.OnReady(func() {
+	ui.OnReady = func() {
+		ui.Data.SetAutoConfigEnabled(auto.Supported())
+		ui.Data.SetOptionsEnabled(false)
+
 		if !onBoarded {
 			return
 		}
 
-		start()
-		ui.Data.SetStarted(true)
-		ui.Data.SetOpenAtLogin(app.autostartEnabled)
-		ui.Data.UpdateUI()
-	})
+		// update initial state
+		ui.Data.SetOpenAtLogin(app.autostartEnabled || ui.Data.OpenAtLogin())
 
-	ui.OnExit(func() {
+		// TODO: store whether the user has explicitly
+		// enabled auto config instead of checking if cert
+		// is widely trusted
+		autoConfig := auto.Supported() &&
+			auto.VerifyCert(app.config.CertPath) == nil
+
+		ui.Data.SetAutoConfig(autoConfig)
+
+		// start fingertip
+		start()
+	}
+
+	ui.OnExit = func() {
 		if fileLoggerHandle != nil {
 			fileLoggerHandle.Close()
 		}
 		app.stop()
-	})
+	}
 
 	ui.Loop()
 }

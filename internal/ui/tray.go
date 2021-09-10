@@ -9,51 +9,33 @@ import (
 )
 
 var (
-	onExit      func()
-	onStart     func()
-	onAutostart func(checked bool) bool
-	onStop      func()
-	onReady     func()
+	OnExit        func()
+	OnStart       func()
+	OnAutostart   func(checked bool) bool
+	OnConfigureOS func(checked bool) bool
+	OnOpenSetup   func()
+	OnStop        func()
+	OnReady       func()
+	Data          State
 )
 
-func OnExit(handle func()) {
-	onExit = handle
-}
-
-func OnStart(handleOnStart func()) {
-	onStart = handleOnStart
-}
-
-func OnStop(handle func()) {
-	onStop = handle
-}
-
-func OnReady(handle func()) {
-	onReady = handle
-}
-
-func OnAutostart(handle func(checked bool) bool) {
-	onAutostart = handle
-}
-
 func Loop() {
-	systray.Run(Data.onReady, onExit)
+	systray.Run(Data.initMenu, OnExit)
 }
 
 type State struct {
 	started     bool
-	autostart   bool
 	runToggle   *systray.MenuItem
 	openAtLogin *systray.MenuItem
 	blockHeight *systray.MenuItem
+	options     *systray.MenuItem
 	quit        *systray.MenuItem
+
+	autoConfig *systray.MenuItem
+	openSetup  *systray.MenuItem
 
 	sync.RWMutex
 }
-
-var (
-	Data State
-)
 
 // space padding for width
 var startTitle = fmt.Sprintf("%-35s", "Start")
@@ -75,84 +57,106 @@ func (s *State) Started() bool {
 	return s.started
 }
 
-func (s *State) UpdateUI() {
-	s.Lock()
-	defer s.Unlock()
-
-	if Data.started {
-		s.runToggle.SetTitle(stopTitle)
-
-	} else {
-		s.runToggle.SetTitle(startTitle)
-		s.blockHeight.SetTitle("Block height --")
-	}
-
-	if Data.autostart {
-		s.openAtLogin.Check()
-	} else {
-		s.openAtLogin.Uncheck()
-	}
-}
-
 func (s *State) toggleStarted() bool {
-	s.Lock()
-	defer s.Unlock()
-	Data.started = !Data.started
+	if s.Started() {
+		s.SetStarted(false)
+		return false
+	}
 
-	return Data.started
+	return true
 }
 
 func (s *State) SetStarted(started bool) {
 	s.Lock()
 	defer s.Unlock()
 
-	Data.started = started
+	s.started = started
+
+	if s.started {
+		s.runToggle.SetTitle(stopTitle)
+	} else {
+		s.runToggle.SetTitle(startTitle)
+		s.blockHeight.SetTitle("Block height --")
+	}
 }
 
-func (s *State) SetOpenAtLogin(autostart bool) {
-	s.Lock()
-	defer s.Unlock()
-
-	Data.autostart = autostart
+func (s *State) SetOpenAtLogin(checked bool) {
+	if checked {
+		s.openAtLogin.Check()
+		return
+	}
+	s.openAtLogin.Uncheck()
 }
 
-func (s *State) onReady() {
+func (s *State) OpenAtLogin() bool {
+	return s.openAtLogin.Checked()
+}
+
+func (s *State) SetAutoConfig(checked bool) {
+	if checked {
+		s.autoConfig.Check()
+		return
+	}
+
+	s.autoConfig.Uncheck()
+}
+
+func (s *State) SetAutoConfigEnabled(enabled bool) {
+	if enabled {
+		s.autoConfig.Enable()
+		return
+	}
+
+	s.autoConfig.Disable()
+}
+
+func (s *State) SetOptionsEnabled(enabled bool) {
+	if enabled {
+		s.options.Enable()
+		return
+	}
+	s.options.Disable()
+}
+
+func (s *State) initMenu() {
 	systray.SetTemplateIcon(icon.Toolbar, icon.Toolbar)
 	systray.SetTooltip(config.AppName)
 
-	Data.runToggle = systray.AddMenuItem(startTitle, "Start")
-	Data.openAtLogin = systray.AddMenuItemCheckbox("Open at login", "Open at login", false)
+	s.runToggle = systray.AddMenuItem(startTitle, "Start")
+	s.openAtLogin = systray.AddMenuItemCheckbox("Open at login", "Open at login", false)
 
 	systray.AddSeparator()
-	Data.blockHeight = systray.AddMenuItem("Block height --", "Block height")
-	Data.blockHeight.Disable()
+	s.blockHeight = systray.AddMenuItem("Block height --", "Block height")
+	s.blockHeight.Disable()
 
 	systray.AddSeparator()
-	Data.quit = systray.AddMenuItem("Quit", "Quit")
+	s.options = systray.AddMenuItem("Options", "Options")
 
-	onReady()
+	s.autoConfig = s.options.AddSubMenuItemCheckbox("Auto configure",
+		"Automatically configure your OS to use Fingertip", false)
+	s.openSetup = s.options.AddSubMenuItem("Help", "Opens manual setup instructions page")
+
+	s.quit = systray.AddMenuItem("Quit", "Quit")
+
+	OnReady()
 
 	go func() {
 		for {
 			select {
 			case <-s.runToggle.ClickedCh:
 				if s.toggleStarted() {
-					onStart()
-					s.UpdateUI()
+					OnStart()
 					continue
 				}
 
-				onStop()
-				s.UpdateUI()
+				OnStop()
 			case <-s.openAtLogin.ClickedCh:
-				if onAutostart(s.openAtLogin.Checked()) {
-					s.openAtLogin.Check()
-					s.SetOpenAtLogin(true)
-					continue
-				}
-
-				s.SetOpenAtLogin(false)
-				s.openAtLogin.Uncheck()
+				s.SetOpenAtLogin(OnAutostart(s.openAtLogin.Checked()))
+			case <-s.autoConfig.ClickedCh:
+				s.SetAutoConfig(OnConfigureOS(s.autoConfig.Checked()))
+			case <-s.openSetup.ClickedCh:
+				OnOpenSetup()
+				continue
 			case <-s.quit.ClickedCh:
 				systray.Quit()
 				return
