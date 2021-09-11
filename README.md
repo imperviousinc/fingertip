@@ -36,15 +36,18 @@ $ git clone https://github.com/buffrr/fingertip
 
 ### MacOS
 
-Follow [hnsd](https://github.com/handshake-org/hnsd) build instructions for MacOS. 
-
-Move hnsd binary to `builds/macos/Fingertip.app/Contents/MacOS/`
-
 ```
-$ brew install dylibbundler
-$ dylibbundler -od -b -x ./builds/macos/Fingertip.app/Contents/MacOS/hnsd -d ./builds/macos/Fingertip.app/Contents/Frameworks/ -p @executable_path/../Frameworks/
-$ go build -trimpath -o ./builds/macos/Fingertip.app/Contents/MacOS/fingertip
+$ brew install dylibbundler git automake autoconf libtool unbound
+$ git clone https://github.com/imperviousinc/fingertip
+$ cd fingertip && ./builds/macos/build.sh
 ```
+
+For development, you can run fingertip from the following path:
+```
+$ ./builds/macos/Fingertip.app/Contents/MacOS/fingertip
+```
+        
+Configure your IDE to output to this directory or continue to use `build.sh` when making changes (it will only build hnsd once).
 
 ### Windows
 
