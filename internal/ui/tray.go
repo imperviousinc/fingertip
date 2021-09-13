@@ -122,7 +122,7 @@ func (s *State) initMenu() {
 	systray.SetTemplateIcon(icon.Toolbar, icon.Toolbar)
 	systray.SetTooltip(config.AppName)
 
-	s.runToggle = systray.AddMenuItem(startTitle, "Start")
+	s.runToggle = systray.AddMenuItem(startTitle, "")
 	s.openAtLogin = systray.AddMenuItemCheckbox("Open at login", "Open at login", false)
 
 	systray.AddSeparator()
@@ -130,13 +130,12 @@ func (s *State) initMenu() {
 	s.blockHeight.Disable()
 
 	systray.AddSeparator()
-	s.options = systray.AddMenuItem("Options", "Options")
+	s.options = systray.AddMenuItem("Options", "")
 
-	s.autoConfig = s.options.AddSubMenuItemCheckbox("Auto configure",
-		"Automatically configure your OS to use Fingertip", false)
-	s.openSetup = s.options.AddSubMenuItem("Help", "Opens manual setup instructions page")
+	s.autoConfig = s.options.AddSubMenuItemCheckbox("Auto configure", "", false)
+	s.openSetup = s.options.AddSubMenuItem("Help", "")
 
-	s.quit = systray.AddMenuItem("Quit", "Quit")
+	s.quit = systray.AddMenuItem("Quit", "")
 
 	OnReady()
 
