@@ -17,7 +17,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -85,12 +84,12 @@ func autoConfigure(app *App, checked, onBoarded bool) bool {
 		return !confirm || err != nil
 	}
 
-	confirm := ui.ShowYesNoDlg("Automatically configure Fingertip? This allows Fingertip to work with Chrome, Safari and other apps that use the OS trust store and proxy settings.")
+	confirm := ui.ShowYesNoDlg("Would you like to automatically configure Fingertip?")
 	if !confirm {
 		// if this is the first time show
 		// manual setup instructions instead
 		if !onBoarded {
-			ui.OnOpenSetup()
+			browser.OpenURL(app.proxyURL+"/setup")
 		}
 		return false
 	}
@@ -126,6 +125,7 @@ func autoConfigure(app *App, checked, onBoarded bool) bool {
 		ui.Data.SetOpenAtLogin(enable)
 	}
 
+	browser.OpenURL(app.proxyURL)
 	return true
 }
 
@@ -184,40 +184,20 @@ func main() {
 		return autoConfigure(app, checked, onBoarded)
 	}
 
-	ui.OnOpenSetup = func() {
+	ui.OnOpenHelp = func() {
 		browser.OpenURL(app.proxyURL)
 	}
 
 	ui.OnAutostart = func(checked bool) bool {
 		if checked {
-			err := app.autostart.Disable()
-			if err != nil {
-				ui.ShowErrorDlg(fmt.Sprintf("error disabling launch at login: %v", err))
+			if err := app.autostart.Disable() ; err != nil {
+				ui.ShowErrorDlg(fmt.Sprintf("error disabling open at login: %v", err))
 				return checked
 			}
-
 			return false
 		}
 
-		appPathShown := strings.TrimSuffix(appPath, "/Contents/MacOS/fingertip")
-		confirm := true
-		// warn if the app doesn't seem to be in a standard path
-		if !strings.Contains(appPath, "Program Files") && // windows
-			!strings.Contains(appPath, "AppData") && // windows
-			!strings.Contains(appPath, "Applications") { // macos
-
-			msg := fmt.Sprintf("Will you keep the app in this path `%s`? \n"+
-				"If not move the app to the desired location before "+
-				"enabling open at login.", appPathShown)
-			confirm = ui.ShowYesNoDlg(msg)
-		}
-
-		if !confirm {
-			return false
-		}
-
-		err = app.autostart.Enable()
-		if err != nil {
+		if err = app.autostart.Enable() ; err != nil {
 			ui.ShowErrorDlg(fmt.Sprintf("error enabling open at login: %v", err))
 			return false
 		}
@@ -225,7 +205,7 @@ func main() {
 		return true
 	}
 
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(150 * time.Millisecond)
 
 	go func() {
 		for {
@@ -269,9 +249,13 @@ func main() {
 			case <-ticker.C:
 				if !app.proc.Started() {
 					ui.Data.SetBlockHeight("--")
+					app.config.Debug.SetBlockHeight(0)
 					continue
 				}
-				ui.Data.SetBlockHeight(fmt.Sprintf("#%d", app.proc.GetHeight()))
+
+				height := app.proc.GetHeight()
+				ui.Data.SetBlockHeight(fmt.Sprintf("#%d",height))
+				app.config.Debug.SetBlockHeight(height)
 			}
 
 		}
@@ -294,9 +278,13 @@ func main() {
 		// update initial state
 		ui.Data.SetOpenAtLogin(app.autostartEnabled || ui.Data.OpenAtLogin())
 
+		app.config.Debug.SetCheckCert(func() bool {
+			return auto.VerifyCert(app.config.CertPath) == nil
+		})
+
 		// TODO: store whether the user has explicitly
-		// enabled auto config instead of checking if cert
-		// is widely trusted
+		// enabled auto config instead of checking
+		// if cert is trusted
 		autoConfig := auto.Supported() &&
 			auto.VerifyCert(app.config.CertPath) == nil
 
@@ -364,6 +352,8 @@ func (a *App) NewResolver() (resolver.Resolver, error) {
 
 	// Register HIP-5 handlers
 	hip5.RegisterHandler("_eth", ethExt.Handler)
+	hip5.SetQueryMiddleware(a.config.Debug.GetDNSProbeMiddleware())
+	a.config.Debug.SetCheckSynced(a.proc.Synced)
 
 	return hip5, nil
 }

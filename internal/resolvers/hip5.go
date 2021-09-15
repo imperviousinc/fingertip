@@ -18,9 +18,11 @@ var errBadCNAMETarget = errors.New("bad cname target")
 var errMaxDepthReached = errors.New("max depth reached")
 
 type hip5Handler func(ctx context.Context, qname string, qtype uint16, ns *dns.NS) ([]dns.RR, error)
+type QueryMiddlewareFunc func(qname string, qtype uint16) (bool, *resolver.DNSResult)
 
 type HIP5Resolver struct {
 	handlers map[string]hip5Handler
+	onBeforeQuery QueryMiddlewareFunc
 
 	// for sending queries to a trusted root
 	// to get hip-5 addresses
@@ -77,7 +79,18 @@ func (h *HIP5Resolver) RegisterHandler(extension string, handler hip5Handler) {
 	h.handlers[extension] = handler
 }
 
+
+func (h *HIP5Resolver) SetQueryMiddleware(m QueryMiddlewareFunc) {
+	h.onBeforeQuery = m
+}
+
 func (h *HIP5Resolver) query(ctx context.Context, name string, qtype uint16) *resolver.DNSResult {
+	if h.onBeforeQuery != nil {
+		if ok, res := h.onBeforeQuery(name, qtype) ; ok {
+			return res
+		}
+	}
+
 	return h.queryInternal(ctx, name, qtype, 0)
 }
 

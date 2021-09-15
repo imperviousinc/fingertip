@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"github.com/buffrr/letsdane"
@@ -29,6 +30,8 @@ type App struct {
 	Proxy       letsdane.Config
 	ProxyAddr   string
 	Version     string
+
+	Debug Debugger
 }
 
 func getOrCreateDir() (string, error) {
@@ -178,6 +181,8 @@ func NewConfig() (*App, error) {
 		return nil, fmt.Errorf("failed creating config: %v", err)
 	}
 
+	c.Debug.NewProbe()
+
 	return c, nil
 }
 
@@ -188,11 +193,26 @@ type contentHandler struct {
 func (c *contentHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if req.URL.Path == "" || req.URL.Path == "/" {
 		url := GetProxyURL(c.config.ProxyAddr)
-		onBoardingTmpl.Execute(rw, onBoardingTmplData{
+		statusTmpl.Execute(rw, onBoardingTmplData{
 			CertPath: c.config.CertPath,
 			CertLink: url + "/" + CertFileName,
 			PACLink:  url + "/proxy.pac",
 			Version:  c.config.Version,
+			NavSetupLink: url + "/setup",
+			NavStatusLink: url,
+		})
+		return
+	}
+
+	if req.URL.Path == "/setup" {
+		url := GetProxyURL(c.config.ProxyAddr)
+		setupTmpl.Execute(rw, onBoardingTmplData{
+			CertPath: c.config.CertPath,
+			CertLink: url + "/" + CertFileName,
+			PACLink:  url + "/proxy.pac",
+			Version:  c.config.Version,
+			NavSetupLink: url + "/setup",
+			NavStatusLink: url,
 		})
 		return
 	}
@@ -204,6 +224,17 @@ func (c *contentHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			Bytes: c.config.Proxy.Certificate.Raw,
 		}))
 
+		return
+	}
+
+	if req.URL.Path == "/info.json" {
+		if req.URL.Query().Get("init") == "1" {
+			c.config.Debug.NewProbe()
+		}
+
+		rw.Header().Set("Content-Type", "application/json")
+		data, _ := json.Marshal(c.config.Debug.GetInfo())
+		rw.Write(data)
 		return
 	}
 

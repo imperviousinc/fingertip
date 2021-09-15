@@ -13,7 +13,7 @@ var (
 	OnStart       func()
 	OnAutostart   func(checked bool) bool
 	OnConfigureOS func(checked bool) bool
-	OnOpenSetup   func()
+	OnOpenHelp    func()
 	OnStop        func()
 	OnReady       func()
 	Data          State
@@ -154,7 +154,7 @@ func (s *State) initMenu() {
 			case <-s.autoConfig.ClickedCh:
 				s.SetAutoConfig(OnConfigureOS(s.autoConfig.Checked()))
 			case <-s.openSetup.ClickedCh:
-				OnOpenSetup()
+				OnOpenHelp()
 				continue
 			case <-s.quit.ClickedCh:
 				systray.Quit()
