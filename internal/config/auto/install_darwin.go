@@ -12,6 +12,15 @@ import (
 )
 
 var re = regexp.MustCompile(`(?m)^\([0-9]+\)(.+)`)
+var relativeProfilesPath = "Firefox/Profiles"
+
+func VerifyCert(certPath string) (err error) {
+	// TODO: use Go API once supported
+	// current api doesn't support reloading
+	// https://github.com/golang/go/issues/46287
+	_, err = runCommand("security", "verify-cert", "-c", certPath)
+	return err
+}
 
 // Supported whether auto configuration
 // is supported for this build

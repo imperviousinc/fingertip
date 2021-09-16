@@ -13,6 +13,18 @@ import (
 	"unsafe"
 )
 
+var relativeProfilesPath = "Mozilla/Firefox/Profiles"
+
+func VerifyCert(certPath string) (err error) {
+	var cert *x509.Certificate
+	if cert, err = readX509Cert(certPath); err != nil {
+		return
+	}
+
+	_, err = cert.Verify(x509.VerifyOptions{})
+	return
+}
+
 var (
 	modcrypt32                           = syscall.NewLazyDLL("crypt32.dll")
 	procCertAddEncodedCertificateToStore = modcrypt32.NewProc("CertAddEncodedCertificateToStore")

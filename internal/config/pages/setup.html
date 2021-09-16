@@ -14,8 +14,7 @@
 
         .c {
             max-width: 600px;
-            margin: 0 auto;
-            margin-top: 6em;
+            margin: 2em auto 0;
         }
 
         .step {
@@ -135,13 +134,12 @@
             </li>
         </ul>
     </nav>
+    <p>To automatically configure Fingertip, go to <strong>Options -> Auto configure.</strong></p>
     <h3 style="margin-top: 2em;"><span class="step">1</span> Install Certificate</h3>
     <p>Your private CA is stored at <code>{{.CertPath}}</code>.</p>
     <p>
-        Add this CA to your browser/TLS client trust store to
-        allow Fingertip to authenticate and issue certificates for decentralized names.
-        Your CA cannot be used with legacy TLDs such as .com, .net
-        ... etc. These names are excluded using the name constraints extension.
+        It cannot be used to issue certificates for legacy domains (ending with .com, .net ... etc) since it uses the name constraints extension. Add this CA to your browser/TLS client trust store to
+        allow Fingertip to issue certificates for decentralized names.
     </p>
 
     <div style="margin: 2em 0;">

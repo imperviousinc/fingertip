@@ -113,7 +113,9 @@ func autoConfigure(app *App, checked, onBoarded bool) bool {
 		ui.Data.SetOpenAtLogin(enable)
 	}
 
-	browser.OpenURL(app.proxyURL)
+	if time.Since(app.config.Debug.GetLastPing()) > 5 * time.Second {
+		browser.OpenURL(app.proxyURL)
+	}
 	return true
 }
 

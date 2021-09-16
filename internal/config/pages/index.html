@@ -14,8 +14,7 @@
 
         .c {
             max-width: 600px;
-            margin: 0 auto;
-            margin-top: 6em;
+            margin: 2em auto 0;
         }
 
         .step {
@@ -135,7 +134,8 @@
             </li>
         </ul>
     </nav>
-
+    <p class="firefox" style="display: none;padding:0.5em">Tip: You may need to quit Firefox completely and restart for the certificate settings to apply
+        (Right click on the Firefox icon in the dock and click quit)</p>
     <table>
         <tbody>
         <tr>
@@ -176,11 +176,13 @@
     const probeReached = document.querySelector('[data-key="probeReached"]')
     const dnsTest = document.querySelector('[data-key="dnsTest"]')
     const dnsTestErr = document.querySelector('[data-key="dnsTestErr"]')
+    const firefoxNotice = document.querySelector('.firefox');
 
     let probeUrl = "";
     // number of times proxy probe was
     // checked without success
     let probeChecks = 0;
+    let certStatus = -1;
 
     let intervalId;
     let defaultDuration = 300;
@@ -226,14 +228,28 @@
             }
         }
 
-        // cert installed test only checks the system store
+        // hide cert installed test it only checks the system store
         // we don't know for sure if firefox accepts the cert
         const isFirefox = (navigator.userAgent.indexOf('Firefox') !== -1);
         if (isFirefox) {
+            // show firefox install check tip
+            if (data.certInstalled) {
+                firefoxNotice.style.display = 'block';
+            }
+
             certInstalled.closest('tr').style.display = 'none';
         } else {
             certInstalled.innerHTML = data.certInstalled ? "<span class='success'>Yes</span>" :
                 "<span class='error'>No</span>";
+
+            // if cert status changed reload the page
+            // to redo all checks
+            newCertStatus = data.certInstalled ? 1 : 0;
+            if (certStatus !== -1 && certStatus !== newCertStatus) {
+                window.location.reload();
+                return;
+            }
+            certStatus = newCertStatus;
         }
 
         if (data.dnsTestPassed) {

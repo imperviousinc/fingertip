@@ -235,6 +235,7 @@ func (c *contentHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		rw.Header().Set("Content-Type", "application/json")
 		data, _ := json.Marshal(c.config.Debug.GetInfo())
 		rw.Write(data)
+		c.config.Debug.Ping()
 		return
 	}
 

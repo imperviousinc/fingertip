@@ -32,6 +32,7 @@ type Debugger struct {
 
 	blockHeight uint64
 
+	lastPing time.Time
 	sync.RWMutex
 }
 
@@ -128,6 +129,20 @@ func (d *Debugger) SetBlockHeight(h uint64) {
 	d.blockHeight = h
 }
 
+func (d *Debugger) Ping() {
+	d.Lock()
+	defer d.Unlock()
+
+	d.lastPing = time.Now()
+}
+
+func (d *Debugger) GetLastPing() time.Time {
+	d.RLock()
+	defer d.RUnlock()
+
+	return d.lastPing
+}
+
 func (d *Debugger) SetCheckCert(c func() bool) {
 	d.Lock()
 	defer d.Unlock()
@@ -170,8 +185,8 @@ func (d *Debugger) GetInfo() DebugInfo {
 		BlockHeight:        d.blockHeight,
 		ProbeURL:           "http://" + d.proxyProbeDomain,
 		ProbeReached:       d.proxyProbeReached,
-		Syncing:            !d.checkSynced(),
-		CertInstalled:      d.checkCert(),
+		Syncing:            d.checkSynced != nil && !d.checkSynced(),
+		CertInstalled:      d.checkCert != nil && d.checkCert(),
 		DNSReachable:       !d.dnsProbeInProgress && d.dnsProbeErr == nil,
 		DNSProbeErr:        err,
 		DNSProbeInProgress: d.dnsProbeInProgress,
