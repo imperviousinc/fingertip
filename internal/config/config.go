@@ -175,7 +175,7 @@ func NewConfig() (*App, error) {
 
 	c.Proxy.Constraints = nameConstraints
 	c.Proxy.SkipNameChecks = false
-	c.Proxy.Verbose = true
+	c.Proxy.Verbose = false
 	c.Proxy.Validity = time.Hour
 	c.Proxy.ContentHandler = &contentHandler{c}
 	if c.Proxy.Certificate, c.Proxy.PrivateKey, err = c.loadCA(); err != nil {
