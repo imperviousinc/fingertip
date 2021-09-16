@@ -77,7 +77,7 @@ func autoConfigure(app *App, checked, onBoarded bool) bool {
 		confirm := ui.ShowYesNoDlg("Remove Fingertip configuration settings?")
 		var err error
 		if confirm {
-			_ = auto.UninstallAutoProxy()
+			auto.UninstallAutoProxy(autoURL)
 			auto.UndoFirefoxConfiguration()
 			err = auto.UninstallCert(app.config.CertPath)
 		}
@@ -90,31 +90,17 @@ func autoConfigure(app *App, checked, onBoarded bool) bool {
 		// if this is the first time show
 		// manual setup instructions instead
 		if !onBoarded {
-			browser.OpenURL(app.proxyURL+"/setup")
+			browser.OpenURL(app.proxyURL + "/setup")
 		}
 		return false
 	}
 
-	status, err := auto.GetProxyStatus(autoURL)
-	if err != nil {
+	if err := auto.InstallAutoProxy(autoURL); err != nil {
 		ui.ShowErrorDlg(err.Error())
 		return false
 	}
 
-	// if there are existing proxy settings
-	// its better to avoid messing with them
-	if status == auto.ProxyStatusConflict {
-		ui.ShowErrorDlg("Auto configuration failed your OS has existing proxy settings")
-		return false
-	}
-
-	if status != auto.ProxyStatusInstalled {
-		if err := auto.InstallAutoProxy(autoURL); err != nil {
-			ui.ShowErrorDlg(err.Error())
-			return false
-		}
-		_ = auto.ConfigureFirefox()
-	}
+	_ = auto.ConfigureFirefox()
 
 	if err := auto.InstallCert(app.config.CertPath); err != nil {
 		ui.ShowErrorDlg(err.Error())
@@ -192,14 +178,14 @@ func main() {
 
 	ui.OnAutostart = func(checked bool) bool {
 		if checked {
-			if err := app.autostart.Disable() ; err != nil {
+			if err := app.autostart.Disable(); err != nil {
 				ui.ShowErrorDlg(fmt.Sprintf("error disabling open at login: %v", err))
 				return checked
 			}
 			return false
 		}
 
-		if err = app.autostart.Enable() ; err != nil {
+		if err = app.autostart.Enable(); err != nil {
 			ui.ShowErrorDlg(fmt.Sprintf("error enabling open at login: %v", err))
 			return false
 		}
@@ -256,7 +242,7 @@ func main() {
 				}
 
 				height := app.proc.GetHeight()
-				ui.Data.SetBlockHeight(fmt.Sprintf("#%d",height))
+				ui.Data.SetBlockHeight(fmt.Sprintf("#%d", height))
 				app.config.Debug.SetBlockHeight(height)
 			}
 

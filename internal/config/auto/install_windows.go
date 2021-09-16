@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"golang.org/x/sys/windows/registry"
 	"math/big"
-	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -32,9 +31,7 @@ func Supported() bool {
 	return true
 }
 
-// GetProxyStatus checks if the OS is already using a proxy
-// and whether its the same as autoURL.
-func GetProxyStatus(autoURL string) (ProxyStatus, error) {
+func getProxyStatus(autoURL string) (ProxyStatus, error) {
 	k, err := registry.OpenKey(registry.CURRENT_USER,
 		`SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.QUERY_VALUE)
 	if err != nil {
@@ -43,7 +40,7 @@ func GetProxyStatus(autoURL string) (ProxyStatus, error) {
 	defer k.Close()
 
 	value, _, _ := k.GetStringValue("AutoConfigURL")
-	if strings.EqualFold(autoURL, value) {
+	if equalURL(autoURL, value) {
 		return ProxyStatusInstalled, nil
 	}
 
@@ -54,30 +51,45 @@ func GetProxyStatus(autoURL string) (ProxyStatus, error) {
 	return ProxyStatusConflict, nil
 }
 
-func UninstallAutoProxy() error {
+func UninstallAutoProxy(autoURL string) {
+	if status, err := getProxyStatus(autoURL); err != nil || status == ProxyStatusConflict {
+		return
+	}
+
 	k, err := registry.OpenKey(registry.CURRENT_USER,
 		`SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.ALL_ACCESS)
 	if err != nil {
-		return err
+		return
 	}
 	defer k.Close()
 
-	if err = k.DeleteValue("AutoConfigURL"); err != nil {
-		return fmt.Errorf("failed removing AutoConfigURL: %v", err)
-	}
-
-	return nil
+	_ = k.DeleteValue("AutoConfigURL")
+	return
 }
 
 func InstallAutoProxy(autoURL string) error {
+	status, err := getProxyStatus(autoURL)
+	if err != nil {
+		return fmt.Errorf("failed reading proxy status")
+	}
+	if status == ProxyStatusConflict {
+		return fmt.Errorf("auto configuration failed your OS has existing proxy settings")
+	}
+	if status == ProxyStatusInstalled {
+		return nil
+	}
+
 	k, err := registry.OpenKey(registry.CURRENT_USER,
 		`SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.ALL_ACCESS)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed reading from registry: %v", err)
 	}
 	defer k.Close()
 
-	return k.SetStringValue("AutoConfigURL", autoURL)
+	if err = k.SetStringValue("AutoConfigURL", autoURL); err != nil {
+		return fmt.Errorf("failed setting AutoConfigURL: %v", err)
+	}
+	return nil
 }
 
 func InstallCert(certPath string) error {

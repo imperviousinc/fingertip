@@ -10,14 +10,8 @@ func Supported() bool {
 	return false
 }
 
-// GetProxyStatus checks if the OS is already using a proxy
-// and whether its the same as autoURL.
-func GetProxyStatus(autoURL string) (ProxyStatus, error) {
-	return ProxyStatusNone, errors.New("not supported")
-}
-
-func UninstallAutoProxy() error {
-	return errors.New("not supported")
+func UninstallAutoProxy(autoURL string) {
+	return nil
 }
 
 func InstallAutoProxy(autoURL string) error {

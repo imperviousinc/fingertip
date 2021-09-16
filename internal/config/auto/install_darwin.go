@@ -19,106 +19,89 @@ func Supported() bool {
 	return true
 }
 
-// GetProxyStatus checks if the OS is already using a proxy
-// and whether its the same as autoURL.
-func GetProxyStatus(autoURL string) (ProxyStatus, error) {
-	var (
-		conflict  bool
-		installed = true
-	)
-
-	ok, err := forEachService(func(service string) error {
-		cmd := exec.Command("networksetup", "-getautoproxyurl", service)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return err
-		}
-
-		url, enabled := parseGetAutoURL(string(out))
-		if !enabled {
-			installed = false
-			return nil
-		}
-
-		if url == "" {
-			installed = false
-			return nil
-		}
-
-		if !strings.EqualFold(url, autoURL) {
-			conflict = true
-		}
-
-		return nil
-	})
-
-	if err != nil && !ok {
-		return ProxyStatusNone, err
+func getProxyStatusForService(service, autoURL string) (ProxyStatus, error) {
+	out, err := runCommand("networksetup", "-getautoproxyurl", service)
+	if err != nil {
+		return ProxyStatusConflict, err
 	}
 
-	if conflict {
+	url, enabled := parseGetAutoURL(string(out))
+	if !enabled {
+		return ProxyStatusNone, nil
+	}
+
+	if url == "" {
+		return ProxyStatusNone, nil
+	}
+
+	if !equalURL(url, autoURL) {
 		return ProxyStatusConflict, nil
 	}
 
-	if installed {
-		return ProxyStatusInstalled, nil
-	}
-
-	return ProxyStatusNone, nil
+	return ProxyStatusInstalled, nil
 }
 
-func UninstallAutoProxy() error {
-	ok, err := forEachService(func(service string) error {
-		_, err := runCommand("networksetup", "-setautoproxystate", service, "off")
-		return err
-	})
-
-	if ok {
-		return nil
+func UninstallAutoProxy(autoURL string) {
+	services, err := getNetworkServices()
+	if err != nil {
+		return
 	}
 
-	return err
+	for _, service := range services {
+		status, err := getProxyStatusForService(service, autoURL)
+		if err != nil {
+			continue
+		}
+
+		if status == ProxyStatusInstalled {
+			_, _ = runCommand("networksetup", "-setautoproxystate", service, "off")
+		}
+	}
 }
 
 func InstallAutoProxy(autoURL string) error {
-	ok, err := forEachService(func(service string) error {
-		_, err := runCommand("networksetup", "-setautoproxyurl", service, autoURL)
+	services, err := getNetworkServices()
+	if err != nil {
+		return fmt.Errorf("failed reading network services")
+	}
+
+	var lastErr error
+	installed := 0
+
+	for _, service := range services {
+		status, err := getProxyStatusForService(service, autoURL)
 		if err != nil {
-			return err
+			lastErr = fmt.Errorf("failed checking proxy status")
+			continue
+		}
+		if status == ProxyStatusConflict {
+			lastErr = fmt.Errorf("auto configuration failed your OS has existing proxy settings")
+		}
+		if status != ProxyStatusNone {
+			continue
+		}
+		if _, err = runCommand("networksetup", "-setautoproxyurl", service, autoURL); err != nil {
+			lastErr = fmt.Errorf("failed configuring proxy make sure your user account has permissions to change proxy settings")
+			continue
+		}
+		if _, err = runCommand("networksetup", "-setautoproxystate", service, "on"); err != nil {
+			lastErr = fmt.Errorf("failed changing proxy state for service %s", service)
+			continue
 		}
 
-		_, err = runCommand("networksetup", "-setautoproxystate", service, "on")
-		return err
-	})
+		installed++
+	}
 
-	if ok {
+	if installed > 0 {
 		return nil
 	}
 
-	return err
+	return lastErr
 }
 
 func runCommand(name string, args ...string) ([]byte, error) {
 	cmd := exec.Command(name, args...)
 	return cmd.CombinedOutput()
-}
-
-func forEachService(run func(service string) error) (bool, error) {
-	services, err := getNetworkServices()
-	if err != nil {
-		return false, err
-	}
-
-	var lastErr error
-	var good bool
-	for _, service := range services {
-		if err := run(service); err != nil {
-			lastErr = err
-			continue
-		}
-		good = true
-	}
-	return good, lastErr
 }
 
 func getNetworkServices() ([]string, error) {

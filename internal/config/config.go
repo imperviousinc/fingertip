@@ -194,11 +194,11 @@ func (c *contentHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if req.URL.Path == "" || req.URL.Path == "/" {
 		url := GetProxyURL(c.config.ProxyAddr)
 		statusTmpl.Execute(rw, onBoardingTmplData{
-			CertPath: c.config.CertPath,
-			CertLink: url + "/" + CertFileName,
-			PACLink:  url + "/proxy.pac",
-			Version:  c.config.Version,
-			NavSetupLink: url + "/setup",
+			CertPath:      c.config.CertPath,
+			CertLink:      url + "/" + CertFileName,
+			PACLink:       url + "/proxy.pac",
+			Version:       c.config.Version,
+			NavSetupLink:  url + "/setup",
 			NavStatusLink: url,
 		})
 		return
@@ -207,11 +207,11 @@ func (c *contentHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if req.URL.Path == "/setup" {
 		url := GetProxyURL(c.config.ProxyAddr)
 		setupTmpl.Execute(rw, onBoardingTmplData{
-			CertPath: c.config.CertPath,
-			CertLink: url + "/" + CertFileName,
-			PACLink:  url + "/proxy.pac",
-			Version:  c.config.Version,
-			NavSetupLink: url + "/setup",
+			CertPath:      c.config.CertPath,
+			CertLink:      url + "/" + CertFileName,
+			PACLink:       url + "/proxy.pac",
+			Version:       c.config.Version,
+			NavSetupLink:  url + "/setup",
 			NavStatusLink: url,
 		})
 		return

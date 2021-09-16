@@ -32,6 +32,12 @@ user_pref("network.proxy.type", 5);
 `
 )
 
+func equalURL(a, b string) bool {
+	a = strings.TrimSuffix(strings.TrimSpace(a), "/")
+	b = strings.TrimSuffix(strings.TrimSpace(b), "/")
+	return strings.EqualFold(a, b)
+}
+
 func VerifyCert(certPath string) (err error) {
 	var cert *x509.Certificate
 	if cert, err = readX509Cert(certPath); err != nil {
@@ -52,7 +58,7 @@ func ConfigureFirefox() error {
 
 	var lastErr error
 	for _, profilePath := range profiles {
-		if err := writeUserConfig(profilePath) ; err != nil {
+		if err := writeUserConfig(profilePath); err != nil {
 			lastErr = err
 		}
 	}
@@ -60,7 +66,7 @@ func ConfigureFirefox() error {
 }
 
 // UndoFirefoxConfiguration undoes all actions made by ConfigureFirefox
-func UndoFirefoxConfiguration()  {
+func UndoFirefoxConfiguration() {
 	profiles, err := getProfilePaths()
 	if err != nil {
 		return
@@ -68,7 +74,7 @@ func UndoFirefoxConfiguration()  {
 
 	for _, profilePath := range profiles {
 		userjs := path.Join(profilePath, "user.js")
-		if ok,_, _ := fileLineContains(userjs, userProfileHeader) ; ok {
+		if ok, _, _ := fileLineContains(userjs, userProfileHeader); ok {
 			_ = os.Remove(userjs)
 		}
 	}
@@ -78,7 +84,7 @@ func writeUserConfig(profilePath string) (err error) {
 	prefs := path.Join(profilePath, "prefs.js")
 	// if user has existing proxy configuration
 	// ignore this profile
-	if ok, line, _ := fileLineContains(prefs, `"network.proxy.type"`) ; ok {
+	if ok, line, _ := fileLineContains(prefs, `"network.proxy.type"`); ok {
 		// loosely check if its type 0 (no proxy) or 5 (system proxy)
 		if !strings.ContainsRune(line, '0') && !strings.ContainsRune(line, '5') {
 			return errors.New("profile with existing proxy configuration")
@@ -87,7 +93,7 @@ func writeUserConfig(profilePath string) (err error) {
 
 	userjs := path.Join(profilePath, "user.js")
 	if _, err = os.Stat(userjs); err == nil {
-		if ok, _, _ := fileLineContains(userjs, userProfileHeader) ; !ok {
+		if ok, _, _ := fileLineContains(userjs, userProfileHeader); !ok {
 			return nil
 		}
 	}
