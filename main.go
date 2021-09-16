@@ -103,6 +103,10 @@ func autoConfigure(app *App, checked, onBoarded bool) bool {
 	_ = auto.ConfigureFirefox()
 
 	if err := auto.InstallCert(app.config.CertPath); err != nil {
+		// revert proxy settings
+		auto.UninstallAutoProxy(autoURL)
+		auto.UndoFirefoxConfiguration()
+
 		ui.ShowErrorDlg(err.Error())
 		return false
 	}
