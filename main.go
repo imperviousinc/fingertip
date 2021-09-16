@@ -78,6 +78,7 @@ func autoConfigure(app *App, checked, onBoarded bool) bool {
 		var err error
 		if confirm {
 			_ = auto.UninstallAutoProxy()
+			auto.UndoFirefoxConfiguration()
 			err = auto.UninstallCert(app.config.CertPath)
 		}
 
@@ -112,6 +113,7 @@ func autoConfigure(app *App, checked, onBoarded bool) bool {
 			ui.ShowErrorDlg(err.Error())
 			return false
 		}
+		_ = auto.ConfigureFirefox()
 	}
 
 	if err := auto.InstallCert(app.config.CertPath); err != nil {
