@@ -31,6 +31,7 @@ type App struct {
 	ProxyAddr   string
 	Version     string
 
+	Store *Store
 	Debug Debugger
 }
 
@@ -182,6 +183,7 @@ func NewConfig() (*App, error) {
 	}
 
 	c.Debug.NewProbe()
+	c.Store, _ = readStore(path.Join(c.Path, "init"), c.Version, nil)
 
 	return c, nil
 }

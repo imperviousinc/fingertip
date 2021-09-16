@@ -51,12 +51,12 @@ func setupApp() *App {
 		log.Fatal(err)
 	}
 	c.DNSProcPath = path.Join(c.DNSProcPath, "hnsd")
-	s, err := NewApp(c)
+	app, err := NewApp(c)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	return s
+	return app
 }
 
 func onBoardingSeen(name string) bool {
@@ -75,14 +75,14 @@ func autoConfigure(app *App, checked, onBoarded bool) bool {
 
 	if checked {
 		confirm := ui.ShowYesNoDlg("Remove Fingertip configuration settings?")
-		var err error
 		if confirm {
 			auto.UninstallAutoProxy(autoURL)
 			auto.UndoFirefoxConfiguration()
-			err = auto.UninstallCert(app.config.CertPath)
+			_ = auto.UninstallCert(app.config.CertPath)
+			return false
 		}
 
-		return !confirm || err != nil
+		return checked
 	}
 
 	confirm := ui.ShowYesNoDlg("Would you like to automatically configure Fingertip?")
@@ -117,7 +117,7 @@ func autoConfigure(app *App, checked, onBoarded bool) bool {
 		ui.Data.SetOpenAtLogin(enable)
 	}
 
-	if time.Since(app.config.Debug.GetLastPing()) > 5 * time.Second {
+	if time.Since(app.config.Debug.GetLastPing()) > 5*time.Second {
 		browser.OpenURL(app.proxyURL)
 	}
 	return true
@@ -163,19 +163,23 @@ func main() {
 				return
 			}
 
-			f, err := os.OpenFile(onBoardingFilename, os.O_RDONLY|os.O_CREATE, 0644)
-			if err == nil {
-				f.Close()
-			}
+			autoConf := autoConfigure(app, false, false)
+			ui.Data.SetAutoConfig(autoConf)
 
-			ui.Data.SetAutoConfig(autoConfigure(app, false, false))
+			app.config.Store.AutoConfig = autoConf
+			go app.config.Store.Save()
+
 			onBoarded = true
 		}()
 	}
 
 	ui.OnStart = start
 	ui.OnConfigureOS = func(checked bool) bool {
-		return autoConfigure(app, checked, onBoarded)
+		res := autoConfigure(app, checked, onBoarded)
+		app.config.Store.AutoConfig = res
+		go app.config.Store.Save()
+
+		return res
 	}
 
 	ui.OnOpenHelp = func() {
@@ -270,11 +274,8 @@ func main() {
 		// update initial state
 		ui.Data.SetOpenAtLogin(app.autostartEnabled || ui.Data.OpenAtLogin())
 
-		// TODO: store whether the user has explicitly
-		// enabled auto config instead of checking
-		// if cert is trusted
 		autoConfig := auto.Supported() &&
-			auto.VerifyCert(app.config.CertPath) == nil
+			app.config.Store.AutoConfig
 
 		ui.Data.SetAutoConfig(autoConfig)
 
