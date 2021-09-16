@@ -260,17 +260,11 @@ func main() {
 	ui.OnReady = func() {
 		ui.Data.SetAutoConfigEnabled(auto.Supported())
 		ui.Data.SetOptionsEnabled(false)
-
-		if !onBoarded {
-			return
-		}
-
-		// update initial state
-		ui.Data.SetOpenAtLogin(app.autostartEnabled || ui.Data.OpenAtLogin())
-
 		app.config.Debug.SetCheckCert(func() bool {
 			return auto.VerifyCert(app.config.CertPath) == nil
 		})
+		// update initial state
+		ui.Data.SetOpenAtLogin(app.autostartEnabled || ui.Data.OpenAtLogin())
 
 		// TODO: store whether the user has explicitly
 		// enabled auto config instead of checking
