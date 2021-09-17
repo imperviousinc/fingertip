@@ -2,7 +2,10 @@
 
 package auto
 
-import "errors"
+import (
+	"crypto/x509"
+	"errors"
+)
 
 var relativeProfilesPath = "Mozilla/Firefox/Profiles"
 
@@ -23,7 +26,7 @@ func Supported() bool {
 }
 
 func UninstallAutoProxy(autoURL string) {
-	return nil
+	return
 }
 
 func InstallAutoProxy(autoURL string) error {

@@ -67,7 +67,11 @@ func onBoardingSeen(name string) bool {
 }
 
 func autoConfigure(app *App, checked, onBoarded bool) bool {
+	// TODO: delete once linux is supported
 	if !auto.Supported() {
+		if !onBoarded {
+			browser.OpenURL(app.proxyURL + "/setup")
+		}
 		return false
 	}
 
