@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fingertip</title>
+    <style>
+        body {
+            font-size: 16px;
+            font-family: -apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Helvetica Neue, Helvetica, Arial, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol;
+        }
+
+        h1 {
+            color: #444444;
+        }
+
+        .c {
+            max-width: 600px;
+            margin: 2em auto 0;
+        }
+
+        .step {
+            background: #0e0e0e;
+            color: #fff;
+            width: 1.5em;
+            height: 1.5em;
+            display: inline-block;
+            text-align: center;
+            line-height: 1.5em;
+            border-radius: 1.5em;
+            padding: 0.2em;
+            margin-right: 0.5em;
+            font-size: 0.8em;
+        }
+
+        .btn {
+            background-color: #464646;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 0.8em 1.2em;
+            font-size: 0.8em;
+            margin-left: 0.1em;
+            text-decoration: none;
+        }
+
+        a {
+            text-decoration: none;
+        }
+
+        .navbar {
+            border-radius: 4px;
+            background-color: #333333;
+            display: flex;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .navbar a {
+            color: #e7e7e7;
+        }
+
+        .navbar ul {
+            margin: 0;
+            padding: 0;
+            list-style-type: none;
+            display: flex;
+            align-items: center;
+        }
+
+
+        .navbar ul li a {
+            color: #e7e7e7;
+            padding: 1em;
+            display: block;
+        }
+        .navbar ul li:nth-child(1) a {
+            border-top-left-radius: 4px;
+            border-bottom-left-radius: 4px;
+        }
+
+        .navbar ul a:hover,
+        .navbar ul a:focus,
+        .navbar ul .active {
+            background-color: #272727;
+        }
+
+        tr {
+            height: 2em;
+        }
+
+        table {
+            margin-top: 1em;
+            width: 100%;
+            background-color: #fdfdfd;
+            border: 1px solid #e5e5e5;
+            border-radius:  4px;
+            padding: 1em;
+        }
+
+        .success {
+            color: green;
+            font-weight: 600;
+        }
+
+        .error {
+            color: red;
+            font-weight: 600;
+        }
+
+        .warning {
+            color: orange;
+            font-weight: 600;
+        }
+
+        td:nth-child(1) {
+            padding-left: 0.84em;
+        }
+
+        td:nth-child(2) {
+            width: 90px;
+        }
+
+    </style>
+</head>
+<body>
+<div class="c">
+    <h1>Fingertip</h1>
+    <nav class="navbar">
+        <ul>
+            <li>
+                <a  class="active"  href="{{.NavStatusLink}}">Status</a>
+            </li>
+            <li>
+                <a href="{{.NavSetupLink}}">Manual Setup</a>
+            </li>
+        </ul>
+    </nav>
+    <p class="firefox" style="display: none;padding:0.5em">Tip: You may need to quit Firefox completely and restart for the certificate settings to apply
+        (Right click on the Firefox icon in the dock and click quit)</p>
+    <table>
+        <tbody>
+        <tr>
+            <td>Handshake Resolver Status</td>
+            <td data-key="resolverStatus"><span class="warning">Syncing ...</span></td>
+        </tr>
+        <tr>
+            <td>Block height</td>
+            <td data-key="blockHeight">--</td>
+        </tr>
+        <tr>
+            <td>Certificate installed</td>
+            <td data-key="certInstalled">Checking ...</td>
+        </tr>
+        <tr>
+            <td>Browser using Fingertip</td>
+            <td data-key="probeReached">Checking ...</td>
+        </tr>
+
+        <tr>
+            <td>DNS Interference Test</td>
+            <td data-key="dnsTest">Checking ...</td>
+        </tr>
+        <tr style="display: none">
+            <td data-key="dnsTestErr" style="color:red;" colspan="2"></td>
+        </tr>
+        </tbody>
+    </table>
+    <footer style="margin-top: 2em; margin-bottom: 2em; border-top: 1px solid #e5e5e5;">
+        <small>Fingertip v{{.Version}}</small>
+    </footer>
+</div>
+
+<script>
+    const handshakeStatus = document.querySelector('[data-key="resolverStatus"]')
+    const blockHeight = document.querySelector('[data-key="blockHeight"]')
+    const certInstalled = document.querySelector('[data-key="certInstalled"]')
+    const probeReached = document.querySelector('[data-key="probeReached"]')
+    const dnsTest = document.querySelector('[data-key="dnsTest"]')
+    const dnsTestErr = document.querySelector('[data-key="dnsTestErr"]')
+    const firefoxNotice = document.querySelector('.firefox');
+
+    let probeUrl = "";
+    // number of times proxy probe was
+    // checked without success
+    let probeChecks = 0;
+    let certStatus = -1;
+
+    let intervalId;
+    let defaultDuration = 300;
+    let maxDuration = 5000;
+    let currentDuration = defaultDuration;
+    let errors = 0;
+    let init = true;
+
+    function heyFingertip(probe) {
+        // say hi this request will fail
+        // but fingertip will detect it's being used by
+        // this browser
+        fetch(probe).catch(() => {
+            // do nothing
+        });
+    }
+
+    function newDataHandler(data) {
+        if (!data)
+            return;
+        if (!data.proxyProbeReached) {
+            if (probeUrl === "" || (probeChecks > 5 && probeUrl === data.proxyProbeUrl)) {
+                heyFingertip(data.proxyProbeUrl);
+                probeUrl = data.proxyProbeUrl;
+                probeChecks = 0;
+            }
+            probeChecks++;
+        } else {
+            probeChecks = 0;
+        }
+
+        handshakeStatus.innerHTML = data.syncing ? "<span class='warning'>Syncing ...</span>" :
+            "<span class='success'>Ready</span>";
+
+        blockHeight.innerText = data.blockHeight;
+
+        if (data.proxyProbeUrl === probeUrl) {
+            // delay showing status if the test may not have
+            // completed yet
+            if (data.proxyProbeReached || probeChecks > 5) {
+                probeReached.innerHTML = data.proxyProbeReached ? "<span class='success'>Yes</span>" :
+                    "<span class='error'>No</span>";
+            }
+        }
+
+        // hide cert installed test it only checks the system store
+        // we don't know for sure if firefox accepts the cert
+        const isFirefox = (navigator.userAgent.indexOf('Firefox') !== -1);
+        if (isFirefox) {
+            // show firefox install check tip
+            if (data.certInstalled) {
+                firefoxNotice.style.display = 'block';
+            }
+
+            certInstalled.closest('tr').style.display = 'none';
+        } else {
+            certInstalled.innerHTML = data.certInstalled ? "<span class='success'>Yes</span>" :
+                "<span class='error'>No</span>";
+
+            // if cert status changed reload the page
+            // to redo all checks
+            newCertStatus = data.certInstalled ? 1 : 0;
+            if (certStatus !== -1 && certStatus !== newCertStatus) {
+                window.location.reload();
+                return;
+            }
+            certStatus = newCertStatus;
+        }
+
+        if (data.dnsTestPassed) {
+            dnsTest.innerHTML = "<span class='success'>Passed</span>";
+        } else if (data.dnsTestInProgress) {
+            dnsTest.innerHTML = "Checking ...";
+        } else if (data.dnsTestError !== "") {
+            dnsTest.innerHTML = "<span class='error'>Failed</span>";
+            dnsTestErr.innerText = 'error: ' + data.dnsTestError;
+            dnsTestErr.closest('tr').style.display = null;
+        }
+    }
+
+    function poll(duration) {
+        clearInterval(intervalId);
+        intervalId = setInterval(fetchNewData, duration);
+    }
+
+    function fetchNewData() {
+        const shouldInit = init;
+        init = false;
+        fetch('info.json' + (shouldInit ? '?init=1' : '')).then(response => {
+            if (!response.ok) {
+                errors++;
+                currentDuration = Math.min(defaultDuration * errors, maxDuration);
+                poll(currentDuration);
+                return null;
+            }
+            if (errors > 0) {
+                errors = 0;
+                poll(defaultDuration);
+            }
+
+            return response.json();
+        }).then(newDataHandler);
+    }
+
+    poll(defaultDuration);
+</script>
+
+</body>
+</html>

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"github.com/buffrr/letsdane"
@@ -29,6 +30,9 @@ type App struct {
 	Proxy       letsdane.Config
 	ProxyAddr   string
 	Version     string
+
+	Store *Store
+	Debug Debugger
 }
 
 func getOrCreateDir() (string, error) {
@@ -171,12 +175,15 @@ func NewConfig() (*App, error) {
 
 	c.Proxy.Constraints = nameConstraints
 	c.Proxy.SkipNameChecks = false
-	c.Proxy.Verbose = true
+	c.Proxy.Verbose = false
 	c.Proxy.Validity = time.Hour
 	c.Proxy.ContentHandler = &contentHandler{c}
 	if c.Proxy.Certificate, c.Proxy.PrivateKey, err = c.loadCA(); err != nil {
 		return nil, fmt.Errorf("failed creating config: %v", err)
 	}
+
+	c.Debug.NewProbe()
+	c.Store, _ = readStore(path.Join(c.Path, "init"), c.Version, nil)
 
 	return c, nil
 }
@@ -188,11 +195,26 @@ type contentHandler struct {
 func (c *contentHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if req.URL.Path == "" || req.URL.Path == "/" {
 		url := GetProxyURL(c.config.ProxyAddr)
-		onBoardingTmpl.Execute(rw, onBoardingTmplData{
-			CertPath: c.config.CertPath,
-			CertLink: url + "/" + CertFileName,
-			PACLink:  url + "/proxy.pac",
-			Version:  c.config.Version,
+		statusTmpl.Execute(rw, onBoardingTmplData{
+			CertPath:      c.config.CertPath,
+			CertLink:      url + "/" + CertFileName,
+			PACLink:       url + "/proxy.pac",
+			Version:       c.config.Version,
+			NavSetupLink:  url + "/setup",
+			NavStatusLink: url,
+		})
+		return
+	}
+
+	if req.URL.Path == "/setup" {
+		url := GetProxyURL(c.config.ProxyAddr)
+		setupTmpl.Execute(rw, onBoardingTmplData{
+			CertPath:      c.config.CertPath,
+			CertLink:      url + "/" + CertFileName,
+			PACLink:       url + "/proxy.pac",
+			Version:       c.config.Version,
+			NavSetupLink:  url + "/setup",
+			NavStatusLink: url,
 		})
 		return
 	}
@@ -204,6 +226,18 @@ func (c *contentHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			Bytes: c.config.Proxy.Certificate.Raw,
 		}))
 
+		return
+	}
+
+	if req.URL.Path == "/info.json" {
+		if req.URL.Query().Get("init") == "1" {
+			c.config.Debug.NewProbe()
+		}
+
+		rw.Header().Set("Content-Type", "application/json")
+		data, _ := json.Marshal(c.config.Debug.GetInfo())
+		rw.Write(data)
+		c.config.Debug.Ping()
 		return
 	}
 

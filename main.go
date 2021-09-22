@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fingertip/internal/config"
+	"fingertip/internal/config/auto"
 	"fingertip/internal/resolvers"
 	"fingertip/internal/resolvers/proc"
 	"fingertip/internal/ui"
@@ -16,7 +17,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -51,12 +51,12 @@ func setupApp() *App {
 		log.Fatal(err)
 	}
 	c.DNSProcPath = path.Join(c.DNSProcPath, "hnsd")
-	s, err := NewApp(c)
+	app, err := NewApp(c)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	return s
+	return app
 }
 
 func onBoardingSeen(name string) bool {
@@ -64,6 +64,67 @@ func onBoardingSeen(name string) bool {
 		return true
 	}
 	return false
+}
+
+func autoConfigure(app *App, checked, onBoarded bool) bool {
+	// TODO: delete once linux is supported
+	if !auto.Supported() {
+		if !onBoarded {
+			browser.OpenURL(app.proxyURL + "/setup")
+		}
+		return false
+	}
+
+	autoURL := app.proxyURL + "/proxy.pac"
+
+	if checked {
+		confirm := ui.ShowYesNoDlg("Remove Fingertip configuration settings?")
+		if confirm {
+			auto.UninstallAutoProxy(autoURL)
+			auto.UndoFirefoxConfiguration()
+			_ = auto.UninstallCert(app.config.CertPath)
+			return false
+		}
+
+		return checked
+	}
+
+	confirm := ui.ShowYesNoDlg("Would you like to automatically configure Fingertip?")
+	if !confirm {
+		// if this is the first time show
+		// manual setup instructions instead
+		if !onBoarded {
+			browser.OpenURL(app.proxyURL + "/setup")
+		}
+		return false
+	}
+
+	if err := auto.InstallAutoProxy(autoURL); err != nil {
+		ui.ShowErrorDlg(err.Error())
+		return false
+	}
+
+	_ = auto.ConfigureFirefox()
+
+	if err := auto.InstallCert(app.config.CertPath); err != nil {
+		// revert proxy settings
+		auto.UninstallAutoProxy(autoURL)
+		auto.UndoFirefoxConfiguration()
+
+		ui.ShowErrorDlg(err.Error())
+		return false
+	}
+
+	// Enable open at login
+	if !ui.Data.OpenAtLogin() {
+		enable := ui.OnAutostart(false)
+		ui.Data.SetOpenAtLogin(enable)
+	}
+
+	if time.Since(app.config.Debug.GetLastPing()) > 5*time.Second {
+		browser.OpenURL(app.proxyURL)
+	}
+	return true
 }
 
 func main() {
@@ -94,6 +155,9 @@ func main() {
 
 	start := func() {
 		app.proc.Start(hnsErrCh)
+		ui.Data.SetOptionsEnabled(true)
+		ui.Data.SetStarted(true)
+
 		go func() {
 			serverErrCh <- app.listen()
 		}()
@@ -103,55 +167,47 @@ func main() {
 				return
 			}
 
-			f, err := os.OpenFile(onBoardingFilename, os.O_RDONLY|os.O_CREATE, 0644)
-			if err == nil {
-				f.Close()
-			}
+			autoConf := autoConfigure(app, false, false)
+			ui.Data.SetAutoConfig(autoConf)
 
-			browser.OpenURL(app.proxyURL)
+			app.config.Store.AutoConfig = autoConf
+			go app.config.Store.Save()
+
+			onBoarded = true
 		}()
 	}
 
-	ui.OnStart(start)
+	ui.OnStart = start
+	ui.OnConfigureOS = func(checked bool) bool {
+		res := autoConfigure(app, checked, onBoarded)
+		app.config.Store.AutoConfig = res
+		go app.config.Store.Save()
 
-	ui.OnAutostart(func(checked bool) bool {
+		return res
+	}
+
+	ui.OnOpenHelp = func() {
+		browser.OpenURL(app.proxyURL)
+	}
+
+	ui.OnAutostart = func(checked bool) bool {
 		if checked {
-			err := app.autostart.Disable()
-			if err != nil {
-				ui.ShowErrorDlg(fmt.Sprintf("error disabling launch at login: %v", err))
+			if err := app.autostart.Disable(); err != nil {
+				ui.ShowErrorDlg(fmt.Sprintf("error disabling open at login: %v", err))
 				return checked
 			}
-
 			return false
 		}
 
-		appPathShown := strings.TrimSuffix(appPath, "/Contents/MacOS/fingertip")
-		confirm := true
-		// warn if the app doesn't seem to be in a standard path
-		if !strings.Contains(appPath, "Program Files") && // windows
-			!strings.Contains(appPath, "AppData") && // windows
-			!strings.Contains(appPath, "Applications") { // macos
-
-			msg := fmt.Sprintf("Will you keep the app in this path `%s`? \n"+
-				"If not move the app to the desired location before "+
-				"enabling open at login.", appPathShown)
-			confirm = ui.ShowYesNoDlg(msg)
-		}
-
-		if !confirm {
-			return false
-		}
-
-		err = app.autostart.Enable()
-		if err != nil {
+		if err = app.autostart.Enable(); err != nil {
 			ui.ShowErrorDlg(fmt.Sprintf("error enabling open at login: %v", err))
 			return false
 		}
 
 		return true
-	})
+	}
 
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(150 * time.Millisecond)
 
 	go func() {
 		for {
@@ -166,7 +222,6 @@ func main() {
 
 				app.stop()
 				ui.Data.SetStarted(false)
-				ui.Data.UpdateUI()
 			case err := <-hnsErrCh:
 				if !app.proc.Started() {
 					continue
@@ -196,35 +251,48 @@ func main() {
 			case <-ticker.C:
 				if !app.proc.Started() {
 					ui.Data.SetBlockHeight("--")
+					app.config.Debug.SetBlockHeight(0)
 					continue
 				}
-				ui.Data.SetBlockHeight(fmt.Sprintf("#%d", app.proc.GetHeight()))
+
+				height := app.proc.GetHeight()
+				ui.Data.SetBlockHeight(fmt.Sprintf("#%d", height))
+				app.config.Debug.SetBlockHeight(height)
 			}
 
 		}
 	}()
 
-	ui.OnStop(func() {
+	ui.OnStop = func() {
 		app.stop()
-	})
+		ui.Data.SetOptionsEnabled(false)
+		ui.Data.SetStarted(false)
+	}
 
-	ui.OnReady(func() {
-		if !onBoarded {
-			return
-		}
+	ui.OnReady = func() {
+		ui.Data.SetAutoConfigEnabled(auto.Supported())
+		ui.Data.SetOptionsEnabled(false)
+		app.config.Debug.SetCheckCert(func() bool {
+			return auto.VerifyCert(app.config.CertPath) == nil
+		})
+		// update initial state
+		ui.Data.SetOpenAtLogin(app.autostartEnabled || ui.Data.OpenAtLogin())
 
+		autoConfig := auto.Supported() &&
+			app.config.Store.AutoConfig
+
+		ui.Data.SetAutoConfig(autoConfig)
+
+		// start fingertip
 		start()
-		ui.Data.SetStarted(true)
-		ui.Data.SetOpenAtLogin(app.autostartEnabled)
-		ui.Data.UpdateUI()
-	})
+	}
 
-	ui.OnExit(func() {
+	ui.OnExit = func() {
 		if fileLoggerHandle != nil {
 			fileLoggerHandle.Close()
 		}
 		app.stop()
-	})
+	}
 
 	ui.Loop()
 }
@@ -277,6 +345,8 @@ func (a *App) NewResolver() (resolver.Resolver, error) {
 
 	// Register HIP-5 handlers
 	hip5.RegisterHandler("_eth", ethExt.Handler)
+	hip5.SetQueryMiddleware(a.config.Debug.GetDNSProbeMiddleware())
+	a.config.Debug.SetCheckSynced(a.proc.Synced)
 
 	return hip5, nil
 }

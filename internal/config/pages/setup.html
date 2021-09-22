@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fingertip - Manual Setup</title>
+    <style>
+        body {
+            font-size: 16px;
+            font-family: -apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Helvetica Neue, Helvetica, Arial, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol;
+        }
+
+        h1 {
+            color: #444444;
+        }
+
+        .c {
+            max-width: 600px;
+            margin: 2em auto 0;
+        }
+
+        .step {
+            background: #0e0e0e;
+            color: #fff;
+            width: 1.5em;
+            height: 1.5em;
+            display: inline-block;
+            text-align: center;
+            line-height: 1.5em;
+            border-radius: 1.5em;
+            padding: 0.2em;
+            margin-right: 0.5em;
+            font-size: 0.8em;
+        }
+
+        .btn {
+            background-color: #464646;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 0.8em 1.2em;
+            font-size: 0.8em;
+            margin-left: 0.1em;
+            text-decoration: none;
+        }
+
+        a {
+            text-decoration: none;
+        }
+
+        .navbar {
+            border-radius: 4px;
+            background-color: #333333;
+            display: flex;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .navbar a {
+            color: #e7e7e7;
+        }
+
+        .navbar ul {
+            margin: 0;
+            padding: 0;
+            list-style-type: none;
+            display: flex;
+            align-items: center;
+        }
+
+
+        .navbar ul li a {
+            color: #e7e7e7;
+            padding: 1em;
+            display: block;
+        }
+        .navbar ul li:nth-child(1) a {
+            border-top-left-radius: 4px;
+            border-bottom-left-radius: 4px;
+        }
+
+        .navbar ul a:hover,
+        .navbar ul a:focus,
+        .navbar ul .active {
+            background-color: #272727;
+        }
+
+        tr {
+            height: 2em;
+        }
+
+        table {
+            margin-top: 1em;
+            width: 100%;
+            background-color: #fdfdfd;
+            border: 1px solid #e5e5e5;
+            border-radius:  4px;
+            padding: 1em;
+        }
+
+        .success {
+            color: green;
+            font-weight: 600;
+        }
+
+        .error {
+            color: red;
+            font-weight: 600;
+        }
+
+        .warning {
+            color: orange;
+            font-weight: 600;
+        }
+
+        td:nth-child(1) {
+            padding-left: 0.84em;
+        }
+
+        td:nth-child(2) {
+            width: 90px;
+        }
+
+    </style>
+</head>
+<body>
+<div class="c">
+    <h1>Fingertip</h1>
+    <nav class="navbar">
+        <ul>
+            <li>
+                <a href="{{.NavStatusLink}}">Status</a>
+            </li>
+            <li>
+                <a class="active" href="{{.NavSetupLink}}">Manual Setup</a>
+            </li>
+        </ul>
+    </nav>
+    <h3 style="margin-top: 2em;"><span class="step">1</span> Install Certificate</h3>
+    <p>Your private CA is stored at <code>{{.CertPath}}</code>.</p>
+    <p>
+        It cannot be used to issue certificates for legacy domains (ending with .com, .net ... etc) since it uses the name constraints extension. Add this CA to your browser/TLS client trust store to
+        allow Fingertip to issue certificates for decentralized names.
+    </p>
+
+    <div style="margin: 2em 0;">
+        <a href="{{.CertLink}}" class="btn">Download Certificate</a>
+    </div>
+
+    <h3 style="margin-top: 4em;"><span class="step">2</span> Configure proxy</h3>
+    <p>Choose Automatic Proxy configuration in your browser/TLS client proxy settings and add this url:</p>
+    <div style="background: #f2f2f2; padding: 1em 2em; font-weight: bold; color: #444;">{{.PACLink}}</div>
+
+    <footer style="margin-top: 2em; margin-bottom: 2em; border-top: 1px solid #e5e5e5;">
+        <small>Fingertip v{{.Version}}</small>
+    </footer>
+</div>
+
+</body>
+</html>

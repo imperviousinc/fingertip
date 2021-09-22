@@ -1,9 +1,12 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/spf13/viper"
+	"io/ioutil"
+	"os"
 )
 
 const (
@@ -19,6 +22,59 @@ type User struct {
 	RootAddr         string `mapstructure:"ROOT_ADDRESS"`
 	RecursiveAddr    string `mapstructure:"RECURSIVE_ADDRESS"`
 	EthereumEndpoint string `mapstructure:"ETHEREUM_ENDPOINT"`
+}
+
+// Stored config
+type Store struct {
+	Version    string `json:"version"`
+	AutoConfig bool   `json:"auto_config"`
+
+	path string
+}
+
+func readStore(path, version string, old *Store) (*Store, error) {
+	var zero *Store
+	if old != nil {
+		zero = old
+	} else {
+		zero = &Store{
+			AutoConfig: false,
+			Version:    version,
+			path:       path,
+		}
+	}
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return zero, nil
+	}
+
+	b, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed reading app config: %v", err)
+	}
+	if len(b) == 0 {
+		return zero, nil
+	}
+	if err := json.Unmarshal(b, zero); err != nil {
+		return nil, fmt.Errorf("failed parsing app config: %v", err)
+	}
+	return zero, nil
+}
+
+func (i *Store) Reload() error {
+	_, err := readStore(i.path, i.Version, i)
+	return err
+}
+
+func (i *Store) Save() error {
+	b, err := json.Marshal(i)
+	if err != nil {
+		return fmt.Errorf("failed encoding app config: %v", err)
+	}
+
+	if err := ioutil.WriteFile(i.path, b, 0664); err != nil {
+		return fmt.Errorf("faild writing app config: %v", err)
+	}
+	return err
 }
 
 var ErrUserConfigNotFound = errors.New("user config not found")
