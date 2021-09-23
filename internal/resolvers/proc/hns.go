@@ -28,9 +28,8 @@ type HNSProc struct {
 	sync.RWMutex
 }
 
-func NewHNSProc(procPath string, rootAddr, recursiveAddr string, opts ...string) (*HNSProc, error) {
-	args := []string{"-n", rootAddr, "-r", recursiveAddr}
-	args = append(args, opts...)
+func NewHNSProc(procPath string, rootAddr, recursiveAddr string) (*HNSProc, error) {
+	args := []string{"--ns-host", rootAddr, "--rs-host", recursiveAddr, "--pool-size", "4"}
 
 	if !strings.HasSuffix(procPath, processExtension) {
 		procPath += processExtension
