@@ -3,7 +3,7 @@ module fingertip
 go 1.16
 
 require (
-	github.com/buffrr/letsdane v0.6.0
+	github.com/buffrr/letsdane v0.6.1
 	github.com/emersion/go-autostart v0.0.0-20210130080809-00ed301c8e9a
 	github.com/ethereum/go-ethereum v1.10.8
 	github.com/getlantern/systray v1.1.0
