@@ -57,6 +57,12 @@ jobs:
           go build -trimpath -o ./builds/linux/appdir/usr/bin
           ls -l builds/linux/appdir/usr/bin/
 
+      - name: Store fingertip binary
+        uses: actions/upload-artifact@v2
+        with:
+          name: fingertip-bin
+          path: ./builds/linux/appdir/usr/bin/fingertip
+
       - name: Download hnsd binary
         uses: actions/download-artifact@v2
         with:
@@ -68,11 +74,25 @@ jobs:
         run: |
           ls -l appdir/usr/bin/
           chmod +x appdir/usr/bin/hnsd
-          wget -c -nv "https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage"
-          chmod a+x linuxdeployqt-continuous-x86_64.AppImage
-          ./linuxdeployqt-continuous-x86_64.AppImage appdir/usr/share/applications/fingertip.desktop -appimage -executable=appdir/usr/bin/hnsd
+          wget -c -nv "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          chmod +x linuxdeploy-x86_64.AppImage
+          ./linuxdeploy-x86_64.AppImage --appdir appdir --output appimage
 
-      - name: Store fingertip binary
+      # https://bbs.archlinux.org/viewtopic.php?pid=1994258#p1994258
+      # Most systems don't have the latest glib and we require (2.69.1+),
+      # so we extract the AppImage, copy glib into it, then replace the AppImage
+      - name: Patch AppImage to include glib
+        working-directory: ./builds/linux
+        run: |
+          wget -c -nv "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x appimagetool-x86_64.AppImage
+          OUTPUT=$(ls Fingertip-*.AppImage)
+          ./$OUTPUT --appimage-extract
+          wget -c -nv "https://archive.archlinux.org/packages/g/glib2/glib2-2.70.2-1-x86_64.pkg.tar.zst"
+          tar xvf glib2-2.70.2-1-x86_64.pkg.tar.zst -C squashfs-root --use-compress-program=unzstd
+          ./appimagetool-x86_64.AppImage squashfs-root $OUTPUT
+
+      - name: Store fingertip AppImage
         uses: actions/upload-artifact@v2
         with:
           name: fingertip-appimage
