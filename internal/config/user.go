@@ -14,6 +14,7 @@ const (
 	DefaultRootAddr         = "127.0.0.1:9591"
 	DefaultRecursiveAddr    = "127.0.0.1:9592"
 	DefaultEthereumEndpoint = "https://mainnet.infura.io/v3/b0933ce6026a4e1e80e89e96a5d095bc"
+	DefaultPolygonEndpoint = "https://polygon-mainnet.infura.io/v3/b0933ce6026a4e1e80e89e96a5d095bc"
 )
 
 // User Represents user facing configuration
@@ -22,6 +23,7 @@ type User struct {
 	RootAddr         string `mapstructure:"ROOT_ADDRESS"`
 	RecursiveAddr    string `mapstructure:"RECURSIVE_ADDRESS"`
 	EthereumEndpoint string `mapstructure:"ETHEREUM_ENDPOINT"`
+	PolygonEndpoint  string `mapstructure:"POLYGON_ENDPOINT"`
 }
 
 // Stored config
@@ -92,6 +94,7 @@ func ReadUserConfig(path string) (config User, err error) {
 	viper.SetDefault("ROOT_ADDRESS", DefaultRootAddr)
 	viper.SetDefault("RECURSIVE_ADDRESS", DefaultRecursiveAddr)
 	viper.SetDefault("ETHEREUM_ENDPOINT", DefaultEthereumEndpoint)
+	viper.SetDefault("POLYGON_ENDPOINT", DefaultPolygonEndpoint)
 
 	err = viper.ReadInConfig()
 	if err != nil {
