@@ -46,6 +46,11 @@ func NewHNSProc(procPath string, rootAddr, recursiveAddr string) (*HNSProc, erro
 	return p, nil
 }
 
+func (h *HNSProc) SetUserAgent(agent string) {
+	extra := []string{"--user-agent", agent}
+	h.args = append(h.args, extra...)
+}
+
 func (h *HNSProc) goStart(stopErr chan<- error) {
 	go func() {
 		h.cmd = exec.Command(h.path, h.args...)

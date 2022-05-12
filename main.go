@@ -320,6 +320,7 @@ func NewApp(appConfig *config.App) (*App, error) {
 	if hnsProc, err = proc.NewHNSProc(appConfig.DNSProcPath, usrConfig.RootAddr, usrConfig.RecursiveAddr); err != nil {
 		return nil, err
 	}
+	hnsProc.SetUserAgent("fingertip:" + Version)
 
 	app.proc = hnsProc
 
