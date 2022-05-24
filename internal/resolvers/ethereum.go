@@ -72,7 +72,12 @@ func (e *Ethereum) GetResolverAddress(node, registryAddress string) (common.Addr
 		return common.Address{}, err
 	}
 
-	addr, err := registry.Resolver(nil, EnsNode(node))
+	normalizedName, err := Normalize(node)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	addr, err := registry.Resolver(nil, EnsNode(normalizedName))
 	if err != nil {
 		return common.Address{}, err
 	}
