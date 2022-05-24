@@ -343,9 +343,14 @@ func (a *App) NewResolver() (resolver.Resolver, error) {
 	if err != nil {
 		return nil, err
 	}
+	polygonExt, err := resolvers.NewEthereum(a.usrConfig.PolygonEndpoint)
+	if err != nil {
+		return nil, err
+	}
 
 	// Register HIP-5 handlers
 	hip5.RegisterHandler("_eth", ethExt.Handler)
+	hip5.RegisterHandler("_matic", polygonExt.Handler)
 	hip5.SetQueryMiddleware(a.config.Debug.GetDNSProbeMiddleware())
 	a.config.Debug.SetCheckSynced(a.proc.Synced)
 
