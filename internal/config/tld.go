@@ -738,6 +738,8 @@ var nameConstraints = map[string]struct{}{
 	"llp":                      {},
 	"loan":                     {},
 	"loans":                    {},
+	"local":                    {},
+	"localhost":                {},
 	"locker":                   {},
 	"locus":                    {},
 	"loft":                     {},
