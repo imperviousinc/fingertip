@@ -251,13 +251,13 @@ func main() {
 			case <-ticker.C:
 				if !app.proc.Started() {
 					ui.Data.SetBlockHeight("--")
-					app.config.Debug.SetBlockHeight(0)
+					app.config.Debug.SetChainInfo(0, 0)
 					continue
 				}
 
-				height := app.proc.GetHeight()
-				ui.Data.SetBlockHeight(fmt.Sprintf("#%d", height))
-				app.config.Debug.SetBlockHeight(height)
+				height, progress := app.proc.GetChainInfo()
+				ui.Data.SetBlockHeight(fmt.Sprintf("#%d (%.2f%%)", height, progress*100))
+				app.config.Debug.SetChainInfo(height, progress)
 			}
 
 		}
@@ -317,7 +317,7 @@ func NewApp(appConfig *config.App) (*App, error) {
 	app.proxyURL = config.GetProxyURL(usrConfig.ProxyAddr)
 	app.usrConfig = &usrConfig
 
-	if hnsProc, err = proc.NewHNSProc(appConfig.DNSProcPath, usrConfig.RootAddr, usrConfig.RecursiveAddr); err != nil {
+	if hnsProc, err = proc.NewHNSProc(appConfig.DNSProcPath, usrConfig.RootAddr, usrConfig.RecursiveAddr, appConfig.Path); err != nil {
 		return nil, err
 	}
 	hnsProc.SetUserAgent("fingertip:" + Version)

@@ -31,6 +31,7 @@ type Debugger struct {
 	checkSynced        func() bool
 
 	blockHeight uint64
+	progress    float64
 
 	lastPing time.Time
 	sync.RWMutex
@@ -38,6 +39,7 @@ type Debugger struct {
 
 type DebugInfo struct {
 	BlockHeight   uint64 `json:"blockHeight"`
+	Progress      float64 `json:"progress"`
 	ProbeURL      string `json:"proxyProbeUrl"`
 	ProbeReached  bool   `json:"proxyProbeReached"`
 	Syncing       bool   `json:"syncing"`
@@ -122,11 +124,12 @@ func exchangeWithRetry(m *dns.Msg, addrs []string) (r *dns.Msg, rtt time.Duratio
 	return
 }
 
-func (d *Debugger) SetBlockHeight(h uint64) {
+func (d *Debugger) SetChainInfo(height uint64, progress float64) {
 	d.Lock()
 	defer d.Unlock()
 
-	d.blockHeight = h
+	d.blockHeight = height
+	d.progress = progress
 }
 
 func (d *Debugger) Ping() {
@@ -183,6 +186,7 @@ func (d *Debugger) GetInfo() DebugInfo {
 	}
 	return DebugInfo{
 		BlockHeight:        d.blockHeight,
+		Progress:           d.progress,
 		ProbeURL:           "http://" + d.proxyProbeDomain,
 		ProbeReached:       d.proxyProbeReached,
 		Syncing:            d.checkSynced != nil && !d.checkSynced(),

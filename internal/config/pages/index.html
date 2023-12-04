@@ -116,7 +116,7 @@
         }
 
         td:nth-child(2) {
-            width: 90px;
+            width: 140px;
         }
 
     </style>
@@ -214,7 +214,8 @@
             probeChecks = 0;
         }
 
-        handshakeStatus.innerHTML = data.syncing ? "<span class='warning'>Syncing ...</span>" :
+        const progress = Math.round(data.progress * 100 * 100) / 100;
+        handshakeStatus.innerHTML = data.syncing ? `<span class='warning'>Syncing (${progress}%)</span>` :
             "<span class='success'>Ready</span>";
 
         blockHeight.innerText = data.blockHeight;
