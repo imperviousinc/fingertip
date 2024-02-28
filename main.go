@@ -5,25 +5,28 @@ import (
 	"fingertip/internal/config"
 	"fingertip/internal/config/auto"
 	"fingertip/internal/resolvers"
-	"fingertip/internal/resolvers/proc"
+
+	// "fingertip/internal/resolvers/proc"
 	"fingertip/internal/ui"
 	"fmt"
-	"github.com/buffrr/letsdane"
-	"github.com/buffrr/letsdane/resolver"
-	"github.com/emersion/go-autostart"
-	"github.com/pkg/browser"
 	"log"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"time"
+
+	"github.com/emersion/go-autostart"
+	"github.com/pkg/browser"
+	"github.com/randomlogin/sane"
+	"github.com/randomlogin/sane/resolver"
+	"github.com/randomlogin/sane/sync"
 )
 
 const Version = "0.0.3"
 
 type App struct {
-	proc             *proc.HNSProc
+	// proc             *proc.HNSProc
 	server           *http.Server
 	config           *config.App
 	usrConfig        *config.User
@@ -46,11 +49,6 @@ func setupApp() *App {
 
 	c.Version = Version
 
-	c.DNSProcPath, err = getProcPath()
-	if err != nil {
-		log.Fatal(err)
-	}
-	c.DNSProcPath = path.Join(c.DNSProcPath, "hnsd")
 	app, err := NewApp(c)
 	if err != nil {
 		log.Fatal(err)
@@ -148,13 +146,28 @@ func main() {
 		app.autostartEnabled = true
 	}
 
-	hnsErrCh := make(chan error)
 	serverErrCh := make(chan error)
 	onBoardingFilename := path.Join(app.config.Path, "init")
 	onBoarded := onBoardingSeen(onBoardingFilename)
 
+	hnsdPath, err := getProcPath()
+	if err != nil {
+		log.Fatal(err)
+	}
+	hnsdPath = path.Join(hnsdPath, "/hnsd")
+
+	hnsdCheckpointPath := ""
+	if hnsdPath == "" {
+		log.Fatal("path to hnsd is not provided")
+	}
+	if hnsdCheckpointPath == "" {
+		home, _ := os.UserHomeDir() //above already fails if it doesn't exist
+		hnsdCheckpointPath = path.Join(home, ".hnsd")
+	}
+
+	sync.GetRoots(hnsdPath, app.config.Path, hnsdCheckpointPath)
+
 	start := func() {
-		app.proc.Start(hnsErrCh)
 		ui.Data.SetOptionsEnabled(true)
 		ui.Data.SetStarted(true)
 
@@ -207,62 +220,6 @@ func main() {
 		return true
 	}
 
-	ticker := time.NewTicker(150 * time.Millisecond)
-
-	go func() {
-		for {
-			select {
-			case err := <-serverErrCh:
-				if errors.Is(err, http.ErrServerClosed) {
-					continue
-				}
-
-				ui.ShowErrorDlg(err.Error())
-				log.Printf("[ERR] app: proxy server failed: %v", err)
-
-				app.stop()
-				ui.Data.SetStarted(false)
-			case err := <-hnsErrCh:
-				if !app.proc.Started() {
-					continue
-				}
-
-				// hns process crashed attempt to restart
-				// TODO: check if port is already in use
-
-				attempts := app.proc.Retries()
-				if attempts > 9 {
-					err := fmt.Errorf("[ERR] app: fatal error hnsd process keeps crashing err: %v", err)
-					ui.ShowErrorDlg(err.Error())
-					app.stop()
-					log.Fatal(err)
-				}
-
-				// log to a file could be useful for debugging
-				line := fmt.Sprintf("[ERR] app: hnsd process crashed restart attempt #%d err: %v", attempts, err)
-				log.Printf(line)
-				fileLogger.Printf(line)
-
-				// increment retries and restart process
-				app.proc.IncrementRetries()
-				app.proc.Stop()
-				app.proc.Start(hnsErrCh)
-
-			case <-ticker.C:
-				if !app.proc.Started() {
-					ui.Data.SetBlockHeight("--")
-					app.config.Debug.SetBlockHeight(0)
-					continue
-				}
-
-				height := app.proc.GetHeight()
-				ui.Data.SetBlockHeight(fmt.Sprintf("#%d", height))
-				app.config.Debug.SetBlockHeight(height)
-			}
-
-		}
-	}()
-
 	ui.OnStop = func() {
 		app.stop()
 		ui.Data.SetOptionsEnabled(false)
@@ -299,7 +256,6 @@ func main() {
 
 func NewApp(appConfig *config.App) (*App, error) {
 	var err error
-	var hnsProc *proc.HNSProc
 	app := &App{
 		autostart: &autostart.App{
 			Name:        config.AppId,
@@ -317,13 +273,6 @@ func NewApp(appConfig *config.App) (*App, error) {
 	app.proxyURL = config.GetProxyURL(usrConfig.ProxyAddr)
 	app.usrConfig = &usrConfig
 
-	if hnsProc, err = proc.NewHNSProc(appConfig.DNSProcPath, usrConfig.RootAddr, usrConfig.RecursiveAddr); err != nil {
-		return nil, err
-	}
-	hnsProc.SetUserAgent("fingertip:" + Version)
-
-	app.proc = hnsProc
-
 	app.server, err = app.newProxyServer()
 	if err != nil {
 		return nil, err
@@ -338,7 +287,7 @@ func (a *App) NewResolver() (resolver.Resolver, error) {
 		return nil, err
 	}
 
-	hip5 := resolvers.NewHIP5Resolver(rs, a.usrConfig.RootAddr, a.proc.Synced)
+	hip5 := resolvers.NewHIP5Resolver(rs, a.usrConfig.RootAddr, func() bool { return true })
 	ethExt, err := resolvers.NewEthereum(a.usrConfig.EthereumEndpoint)
 	if err != nil {
 		return nil, err
@@ -347,7 +296,7 @@ func (a *App) NewResolver() (resolver.Resolver, error) {
 	// Register HIP-5 handlers
 	hip5.RegisterHandler("_eth", ethExt.Handler)
 	hip5.SetQueryMiddleware(a.config.Debug.GetDNSProbeMiddleware())
-	a.config.Debug.SetCheckSynced(a.proc.Synced)
+	// a.config.Debug.SetCheckSynced(a.proc.Synced)
 
 	return hip5, nil
 }
@@ -357,7 +306,7 @@ func (a *App) listen() error {
 }
 
 func (a *App) stop() {
-	a.proc.Stop()
+	// a.proc.Stop()
 	a.server.Close()
 
 	// on stop create a new server
@@ -402,5 +351,5 @@ func init() {
 	// letsdane shows the version name
 	// in the footer on errors
 	// 0.6.1 is the version used in go.mod
-	letsdane.Version = fmt.Sprintf("0.6.1 - fingertip (v%s)", Version)
+	sane.Version = fmt.Sprintf("0.6.1 - fingertip (v%s)", Version)
 }

@@ -4,16 +4,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/spf13/viper"
-	"io/ioutil"
 	"os"
+
+	"github.com/spf13/viper"
 )
 
 const (
 	DefaultProxyAddr        = "127.0.0.1:9590"
 	DefaultRootAddr         = "127.0.0.1:9591"
-	DefaultRecursiveAddr    = "127.0.0.1:9592"
+	DefaultRecursiveAddr    = "https://hnsdoh.com/dns-query"
 	DefaultEthereumEndpoint = "https://mainnet.infura.io/v3/b0933ce6026a4e1e80e89e96a5d095bc"
+	DefaultExternalService  = "https://sdaneproofs.htools.work/proofs/"
 )
 
 // User Represents user facing configuration
@@ -47,7 +48,7 @@ func readStore(path, version string, old *Store) (*Store, error) {
 		return zero, nil
 	}
 
-	b, err := ioutil.ReadFile(path)
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed reading app config: %v", err)
 	}
@@ -71,7 +72,7 @@ func (i *Store) Save() error {
 		return fmt.Errorf("failed encoding app config: %v", err)
 	}
 
-	if err := ioutil.WriteFile(i.path, b, 0664); err != nil {
+	if err := os.WriteFile(i.path, b, 0664); err != nil {
 		return fmt.Errorf("faild writing app config: %v", err)
 	}
 	return err
@@ -91,6 +92,7 @@ func ReadUserConfig(path string) (config User, err error) {
 	viper.SetDefault("PROXY_ADDRESS", DefaultProxyAddr)
 	viper.SetDefault("ROOT_ADDRESS", DefaultRootAddr)
 	viper.SetDefault("RECURSIVE_ADDRESS", DefaultRecursiveAddr)
+	viper.SetDefault("EXTERNAL_SERVICE", DefaultExternalService)
 	viper.SetDefault("ETHEREUM_ENDPOINT", DefaultEthereumEndpoint)
 
 	err = viper.ReadInConfig()

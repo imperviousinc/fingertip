@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/buffrr/letsdane"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
 	"strings"
 	"time"
+
+	"github.com/randomlogin/sane"
 )
 
 const AppName = "Fingertip"
@@ -23,13 +23,12 @@ const CertKeyFileName = "private.key"
 const CertName = "DNSSEC"
 
 type App struct {
-	Path        string
-	CertPath    string
-	keyPath     string
-	DNSProcPath string
-	Proxy       letsdane.Config
-	ProxyAddr   string
-	Version     string
+	Path      string
+	CertPath  string
+	keyPath   string
+	Proxy     sane.Config
+	ProxyAddr string
+	Version   string
 
 	Store *Store
 	Debug Debugger
@@ -57,7 +56,7 @@ func (c *App) getOrCreateCA() (string, string, error) {
 
 	if _, err := os.Stat(certPath); err != nil {
 		if _, err := os.Stat(keyPath); err != nil {
-			ca, priv, err := letsdane.NewAuthority(CertName, CertName, 365*24*time.Hour, nameConstraints)
+			ca, priv, err := sane.NewAuthority(CertName, CertName, 365*24*time.Hour, nameConstraints)
 			if err != nil {
 				return "", "", fmt.Errorf("couldn't generate CA: %v", err)
 			}
@@ -93,12 +92,12 @@ func (c *App) getOrCreateCA() (string, string, error) {
 }
 
 func loadX509KeyPair(certFile, keyFile string) (tls.Certificate, error) {
-	certPEMBlock, err := ioutil.ReadFile(certFile)
+	certPEMBlock, err := os.ReadFile(certFile)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
 
-	keyPEMBlock, err := ioutil.ReadFile(keyFile)
+	keyPEMBlock, err := os.ReadFile(keyFile)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
@@ -175,9 +174,11 @@ func NewConfig() (*App, error) {
 
 	c.Proxy.Constraints = nameConstraints
 	c.Proxy.SkipNameChecks = false
-	c.Proxy.Verbose = false
 	c.Proxy.Validity = time.Hour
 	c.Proxy.ContentHandler = &contentHandler{c}
+	c.Proxy.Verbose = false
+	c.Proxy.ExternalService = DefaultExternalService
+	c.Proxy.RootsPath = path.Join(c.Path, "roots.json")
 	if c.Proxy.Certificate, c.Proxy.PrivateKey, err = c.loadCA(); err != nil {
 		return nil, fmt.Errorf("failed creating config: %v", err)
 	}

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fingertip/internal/resolvers"
 	"fmt"
-	"github.com/buffrr/letsdane/resolver"
+	"github.com/randomlogin/sane/resolver"
 	"github.com/miekg/dns"
 	"math/rand"
 	"strings"

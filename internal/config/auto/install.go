@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"io/ioutil"
 	"os"
 	"path"
 	"strings"
@@ -134,7 +133,7 @@ func getProfilePaths() ([]string, error) {
 }
 
 func readPEM(certPath string) ([]byte, error) {
-	cert, err := ioutil.ReadFile(certPath)
+	cert, err := os.ReadFile(certPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed reading root certificate: %v", err)
 	}
