@@ -7,13 +7,14 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/buffrr/letsdane"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
 	"strings"
 	"time"
+
+	"github.com/buffrr/letsdane"
 )
 
 const AppName = "Fingertip"
@@ -55,40 +56,58 @@ func (c *App) getOrCreateCA() (string, string, error) {
 	certPath := path.Join(c.Path, CertFileName)
 	keyPath := path.Join(c.Path, CertKeyFileName)
 
-	if _, err := os.Stat(certPath); err != nil {
-		if _, err := os.Stat(keyPath); err != nil {
-			ca, priv, err := letsdane.NewAuthority(CertName, CertName, 365*24*time.Hour, nameConstraints)
-			if err != nil {
-				return "", "", fmt.Errorf("couldn't generate CA: %v", err)
-			}
+	_, keyErr := os.Stat(keyPath)
+	_, certErr := os.Stat(certPath)
+	if keyErr == nil && certErr == nil {
+		certPEM, err := os.ReadFile(certPath)
+		if err != nil {
+			return "", "", fmt.Errorf("couldn't read certificate file: %v\n", err)
+		}
 
-			certOut, err := os.OpenFile(certPath, os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				return "", "", fmt.Errorf("couldn't create CA file: %v", err)
-			}
-			defer certOut.Close()
+		block, _ := pem.Decode(certPEM)
+		if block == nil {
+			return "", "", fmt.Errorf("couldn't parse certificate PEM\n")
+		}
 
-			pem.Encode(certOut, &pem.Block{
-				Type:  "CERTIFICATE",
-				Bytes: ca.Raw,
-			})
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return "", "", fmt.Errorf("couldn't parse certificate: %v\n", err)
+		}
 
-			privOut := bytes.NewBuffer([]byte{})
-			pem.Encode(privOut, &pem.Block{
-				Type:  "RSA PRIVATE KEY",
-				Bytes: x509.MarshalPKCS1PrivateKey(priv),
-			})
-
-			kOut, err := os.OpenFile(keyPath, os.O_CREATE|os.O_WRONLY, 0600)
-			if err != nil {
-				return "", "", fmt.Errorf("couldn't create CA private key file: %v", err)
-			}
-			defer kOut.Close()
-
-			kOut.Write(privOut.Bytes())
+		//cert has not expired
+		if cert.NotAfter.After(time.Now()) {
 			return certPath, keyPath, nil
 		}
 	}
+	ca, priv, err := letsdane.NewAuthority(CertName, CertName, 365*24*time.Hour, nameConstraints)
+	if err != nil {
+		return "", "", fmt.Errorf("couldn't generate CA: %v", err)
+	}
+
+	certOut, err := os.OpenFile(certPath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return "", "", fmt.Errorf("couldn't create CA file: %v", err)
+	}
+	defer certOut.Close()
+
+	pem.Encode(certOut, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: ca.Raw,
+	})
+
+	privOut := bytes.NewBuffer([]byte{})
+	pem.Encode(privOut, &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(priv),
+	})
+
+	kOut, err := os.OpenFile(keyPath, os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return "", "", fmt.Errorf("couldn't create CA private key file: %v", err)
+	}
+	defer kOut.Close()
+
+	kOut.Write(privOut.Bytes())
 	return certPath, keyPath, nil
 }
 
