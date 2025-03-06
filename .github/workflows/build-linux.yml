@@ -1,55 +1,55 @@
 name: Build and Package - Linux
 
-on: [push, pull_request]
+# on: [push, pull_request, workflow_dispatch]
+on: [workflow_dispatch]
 
 jobs:
   build-hnsd:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
 
     steps:
       - name: Checkout hnsd repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: 'handshake-org/hnsd'
+          ref: master
 
       - name: Install dependencies
-        run: sudo apt install -y libunbound-dev
+        run: sudo apt update && sudo apt install -y libunbound-dev
 
       - name: Build hnsd
         run: |
           ./autogen.sh && ./configure && make
-          ls -l
 
       - name: Store hnsd binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: hnsd-bin
           path: ./hnsd
+          if-no-files-found: error
 
   build-fingertip:
     needs: build-hnsd
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.17'
-          cache: true # Cache go modules
+          go-version: '1.21'
 
       - name: Install dependencies
-        run: sudo apt install -y libgtk-3-dev libappindicator3-dev libunbound-dev
+        run: sudo apt install -y libgtk-3-dev libappindicator3-dev libgetdns-dev
 
       - name: Build fingertip
         run: |
           go build -trimpath -o ./builds/linux/appdir/usr/bin
-          ls -l builds/linux/appdir/usr/bin/
-
+          
       - name: Download hnsd binary
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: hnsd-bin
           path: builds/linux/appdir/usr/bin
@@ -57,20 +57,27 @@ jobs:
       - name: Package as AppImage
         working-directory: ./builds/linux
         run: |
-          ls -l appdir/usr/bin/
           chmod +x appdir/usr/bin/hnsd
           wget -c -nv "https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage"
           chmod a+x linuxdeployqt-continuous-x86_64.AppImage
-          ./linuxdeployqt-continuous-x86_64.AppImage appdir/usr/share/applications/fingertip.desktop -appimage -executable=appdir/usr/bin/hnsd
+          ./linuxdeployqt-continuous-x86_64.AppImage appdir/usr/share/applications/fingertip.desktop -appimage
+
+      - name: Get version
+        id: run_version
+        run: |
+          VERSION=$(./builds/linux/appdir/user/bin/fingertip --version)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV  # Store version in the environment variable
 
       - name: Store fingertip binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: fingertip-bin
           path: ./builds/linux/appdir/usr/bin/fingertip
+          if-no-files-found: error
 
       - name: Store fingertip appimage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: fingertip-appimage
+          name: Fingertip-${{ env.VERSION }}-${{ runner.os }}-${{ runner.arch }}
           path: ./builds/linux/Fingertip*.AppImage
+          if-no-files-found: error

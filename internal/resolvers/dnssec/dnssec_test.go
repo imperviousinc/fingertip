@@ -3,8 +3,6 @@ package dnssec
 import (
 	"bufio"
 	"errors"
-	"github.com/miekg/dns"
-	"io/ioutil"
 	"os"
 	"path"
 	"sort"
@@ -12,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 type testHDR struct {
@@ -36,7 +36,7 @@ func TestVerify(t *testing.T) {
 	wd, _ := os.Getwd()
 
 	dir := path.Join(wd, "testdata")
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

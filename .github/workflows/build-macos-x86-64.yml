@@ -1,0 +1,109 @@
+name: Build and Package - MacOS (x86-64)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-hnsd:
+    runs-on: macos-13
+
+    steps:
+      - name: Checkout hnsd repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'handshake-org/hnsd'
+          ref: master
+
+      - name: Install dependencies
+        run: brew install automake autoconf libtool unbound
+
+      - name: Build hnsd
+        run: |
+          ./autogen.sh && ./configure --with-unbound=$(brew --prefix) && make
+          ls -l
+
+      - name: Store hnsd binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: hnsd-bin-${{inputs.os}}
+          path: ./hnsd
+          if-no-files-found: error
+
+  build-fingertip:
+    needs: build-hnsd
+    runs-on: macos-13
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install dependencies
+        run: brew install dylibbundler git automake autoconf libtool getdns
+
+      - name: Verify getdns installation
+        run: |
+          echo $(brew --prefix getdns)
+          ls -l $(brew --prefix getdns)/include/getdns
+          ls -l $(brew --prefix getdns)/lib
+
+      - name: Set environment variables
+        run: |
+          export BREW_PREFIX=$(brew --prefix getdns)
+          echo "BREW_PREFIX=$BREW_PREFIX" >> $GITHUB_ENV
+          echo $GITHUB_ENV
+
+      - name: Download hnsd binary
+        uses: actions/download-artifact@v4
+        with:
+          name: hnsd-bin-${{inputs.os}}
+          path: builds/macos/Fingertip.app/Contents/MacOS
+
+      - name: Build fingertip
+        run: |
+          source $GITHUB_ENV
+          export CGO_CFLAGS="-I$BREW_PREFIX/include"
+          export CGO_LDFLAGS="-L$BREW_PREFIX/lib -lgetdns"
+          echo $CGO_CFLAGS
+          echo $CGO_LDFLAGS
+          chmod +x builds/macos/Fingertip.app/Contents/MacOS/hnsd
+          ./builds/macos/build.sh          
+          ls -l builds/macos
+          ls -l builds/macos/Fingertip.app/Contents/MacOS
+          ls -l builds/macos/Fingertip.app/Contents/Frameworks
+
+      - name: Get version
+        id: run_version
+        run: |
+          VERSION=$(./builds/macos/Fingertip.app/Contents/MacOS/fingertip --version)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Create DMG
+        working-directory: ./builds/macos
+        run: |
+          hdiutil create -format UDZO -srcfolder ./Fingertip.app ./Fingertip-${{ env.VERSION }}-${{ runner.os }}-${{ runner.arch }}.dmg
+          ls -l
+
+      - name: Store fingertip binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: fingertip-bin-${{runner.os}}
+          path: ./builds/macos/Fingertip.app/Contents/MacOS/fingertip
+          if-no-files-found: error
+
+      - name: Store fingertip dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fingertip-${{ env.VERSION }}-${{ runner.os }}-${{ runner.arch }}
+          path: ./builds/macos/Fingertip-${{ env.VERSION }}-${{ runner.os }}-${{ runner.arch }}.dmg
+          if-no-files-found: error

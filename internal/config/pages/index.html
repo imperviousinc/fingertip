@@ -116,7 +116,7 @@
         }
 
         td:nth-child(2) {
-            width: 90px;
+            width: 150px;
         }
 
     </style>
@@ -139,10 +139,16 @@
     <table>
         <tbody>
         <tr>
+            <td>Resolver backend</td>
+            <td data-key="backend">Unknown</td>
+        </tr>
+
+        <tr>
             <td>Handshake Resolver Status</td>
             <td data-key="resolverStatus"><span class="warning">Syncing ...</span></td>
         </tr>
-        <tr>
+        <!-- <tr style="display:none"> -->
+        <tr class="blockHeight" style="display:none">
             <td>Block height</td>
             <td data-key="blockHeight">--</td>
         </tr>
@@ -172,11 +178,13 @@
 <script>
     const handshakeStatus = document.querySelector('[data-key="resolverStatus"]')
     const blockHeight = document.querySelector('[data-key="blockHeight"]')
+    const blockHeightRow = document.querySelector('.blockHeight')
     const certInstalled = document.querySelector('[data-key="certInstalled"]')
     const probeReached = document.querySelector('[data-key="probeReached"]')
     const dnsTest = document.querySelector('[data-key="dnsTest"]')
     const dnsTestErr = document.querySelector('[data-key="dnsTestErr"]')
     const firefoxNotice = document.querySelector('.firefox');
+    const backend = document.querySelector('[data-key="backend"]');
 
     let probeUrl = "";
     // number of times proxy probe was
@@ -214,8 +222,16 @@
             probeChecks = 0;
         }
 
-        handshakeStatus.innerHTML = data.syncing ? "<span class='warning'>Syncing ...</span>" :
-            "<span class='success'>Ready</span>";
+        handshakeStatus.innerHTML = data.syncing ? "<span class='warning'>Syncing ...</span>" : "<span class='success'>Ready</span>";
+        if (data.backend && data.backend == "sane") {
+            backend.innerHTML = "Stateless DANE"
+        }
+        if (data.backend && data.backend == "letsdane") {
+            backend.innerHTML = "Letsdane"
+        }
+        if (data.blockHeight !== 0) {
+            blockHeightRow.style = "";
+        }
 
         blockHeight.innerText = data.blockHeight;
 

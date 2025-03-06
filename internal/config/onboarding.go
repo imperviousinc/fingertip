@@ -12,6 +12,7 @@ type onBoardingTmplData struct {
 	CertLink      string
 	PACLink       string
 	Version       string
+	Backend       string
 }
 
 //go:embed pages/index.html

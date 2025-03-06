@@ -1,0 +1,70 @@
+name: Build Unbound
+# Based on https://github.com/lieser/libunbound-builds
+
+on:
+  workflow_call:
+
+env:
+  UNBOUND_REF: release-1.19.3
+
+jobs:
+  build-unbound:
+    runs-on: windows-latest
+
+    steps:
+      - name: Download cached unbound dll
+        uses: actions/cache@v4
+        id: cache-libunbound
+        with:
+          key: libunbound-dll-${{ env.UNBOUND_REF }}
+          path: |
+            .libs/libunbound-8.dll
+
+      - name: Setup MSYS2
+        if: steps.cache-libunbound.outputs.cache-hit != 'true'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false # TODO: change to true
+          install: >-
+            base-devel
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-expat
+
+      - name: Checkout Unbound repository at ${{ env.UNBOUND_REF }}
+        uses: actions/checkout@v4
+        with:
+          repository: NLnetLabs/unbound
+          ref: ${{ env.UNBOUND_REF }}
+
+      - name: Configure Unbound
+        if: steps.cache-libunbound.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          # Configure libunbound build
+          ./configure --with-libunbound-only --with-ssl=/mingw64 --with-libexpat=/mingw64
+          ls -l
+
+      - name: Statically include OpenSSL
+        if: steps.cache-libunbound.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          sed -i 's|-lssl|-Wl,--whole-archive,/mingw64/lib/libssl.a,--no-whole-archive|g' Makefile
+          sed -i 's|-lcrypto|-Wl,--whole-archive,/mingw64/lib/libcrypto.a,--no-whole-archive|g' Makefile
+          ls -l
+
+      - name: Build Unbound
+        if: steps.cache-libunbound.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          make -j 4
+          ls -l
+          ls -l .libs
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: libunbound-dll-${{ env.UNBOUND_REF }}
+          path: .libs/libunbound-8.dll
+          if-no-files-found: error

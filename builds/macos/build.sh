@@ -7,10 +7,10 @@
 min_macos_version="10.13"
 cflags="-mmacosx-version-min="${min_macos_version}
 working_dir=$(pwd)
-bundle_path="${working_dir}/builds/macos/Fingertip.app/Contents/"
+bundle_path="${working_dir}/builds/macos/Fingertip.app/Contents"
 hnsd_path=${bundle_path}/MacOS/hnsd
 fingertip_path=${bundle_path}/MacOS/fingertip
-lib_dir=${bundle_path}/Frameworks/
+lib_dir=${bundle_path}/Frameworks
 
 if [ ! -e "$hnsd_path" ]; then
 
@@ -20,7 +20,7 @@ git clone https://github.com/handshake-org/hnsd "$tmp_dir"
 cd "$tmp_dir" || exit
 
 echo "Building hnsd ..."
-./autogen.sh && ./configure
+./autogen.sh && ./configure --with-unbound=$(brew --prefix) 
 make CFLAGS=$cflags -j 10
 cp "${tmp_dir}/hnsd" "$hnsd_path"
 
@@ -32,7 +32,13 @@ dylibbundler -od -b -x "$hnsd_path" -d "$lib_dir" -p @executable_path/../Framewo
 fi
 
 # build fingertip
-CGO_CFLAGS=$cflags CGO_LDFLAGS=$cflags go build -trimpath -o "$fingertip_path"
+BREW_PREFIX=$(brew --prefix getdns)
+CGO_CFLAGS="-I$BREW_PREFIX/include"
+CGO_LDFLAGS="-L$BREW_PREFIX/lib -lgetdns"
+CGO_CFLAGS="$cflags $CGO_CFLAGS" CGO_LDFLAGS="$cflags $CGO_LDFLAGS" go build -trimpath -o "$fingertip_path"
+
+# bundle libs
+dylibbundler -od -b -x "$fingertip_path" -d "$lib_dir" -p @executable_path/../Frameworks/
 
 get_min_version() {
    otool -l $1 | grep LC_VERSION_MIN_MACOSX  -A3 | grep version | xargs | sed s/version// | xargs

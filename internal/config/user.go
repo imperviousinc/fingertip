@@ -4,17 +4,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/spf13/viper"
-	"io/ioutil"
 	"os"
+
+	"github.com/spf13/viper"
 )
 
 const (
 	DefaultProxyAddr        = "127.0.0.1:9590"
 	DefaultRootAddr         = "127.0.0.1:9591"
 	DefaultRecursiveAddr    = "127.0.0.1:9592"
+	DefaultDOHUrl           = "https://hnsdoh.com/dns-query"
 	DefaultEthereumEndpoint = "https://mainnet.infura.io/v3/b0933ce6026a4e1e80e89e96a5d095bc"
 )
+
+var DefaultExternalService = []string{"https://sdaneproofs.htools.work/proofs/", "https://sdane.woodburn.au/proofs/", "https://sdaneproofs.shakestation.io/proofs/"}
 
 // User Represents user facing configuration
 type User struct {
@@ -24,10 +27,12 @@ type User struct {
 	EthereumEndpoint string `mapstructure:"ETHEREUM_ENDPOINT"`
 }
 
+// TODO create a type for the backend, not use string
 // Stored config
 type Store struct {
 	Version    string `json:"version"`
 	AutoConfig bool   `json:"auto_config"`
+	Backend    string `json:"backend"`
 
 	path string
 }
@@ -40,6 +45,7 @@ func readStore(path, version string, old *Store) (*Store, error) {
 		zero = &Store{
 			AutoConfig: false,
 			Version:    version,
+			Backend:    "sane",
 			path:       path,
 		}
 	}
@@ -47,7 +53,7 @@ func readStore(path, version string, old *Store) (*Store, error) {
 		return zero, nil
 	}
 
-	b, err := ioutil.ReadFile(path)
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed reading app config: %v", err)
 	}
@@ -56,6 +62,10 @@ func readStore(path, version string, old *Store) (*Store, error) {
 	}
 	if err := json.Unmarshal(b, zero); err != nil {
 		return nil, fmt.Errorf("failed parsing app config: %v", err)
+	}
+
+	if zero.Backend == "letsdane" {
+
 	}
 	return zero, nil
 }
@@ -71,7 +81,7 @@ func (i *Store) Save() error {
 		return fmt.Errorf("failed encoding app config: %v", err)
 	}
 
-	if err := ioutil.WriteFile(i.path, b, 0664); err != nil {
+	if err := os.WriteFile(i.path, b, 0664); err != nil {
 		return fmt.Errorf("faild writing app config: %v", err)
 	}
 	return err
@@ -91,6 +101,7 @@ func ReadUserConfig(path string) (config User, err error) {
 	viper.SetDefault("PROXY_ADDRESS", DefaultProxyAddr)
 	viper.SetDefault("ROOT_ADDRESS", DefaultRootAddr)
 	viper.SetDefault("RECURSIVE_ADDRESS", DefaultRecursiveAddr)
+	viper.SetDefault("EXTERNAL_SERVICE", DefaultExternalService)
 	viper.SetDefault("ETHEREUM_ENDPOINT", DefaultEthereumEndpoint)
 
 	err = viper.ReadInConfig()
@@ -105,5 +116,6 @@ func ReadUserConfig(path string) (config User, err error) {
 	if err != nil {
 		err = fmt.Errorf("error reading user config: %v", err)
 	}
+
 	return
 }

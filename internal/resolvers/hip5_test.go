@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/buffrr/letsdane/resolver"
+	"github.com/randomlogin/sane/resolver"
 	"github.com/miekg/dns"
 	"testing"
 	"time"

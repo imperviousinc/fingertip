@@ -1,26 +1,31 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fingertip/internal/config"
 	"fingertip/internal/config/auto"
 	"fingertip/internal/resolvers"
 	"fingertip/internal/resolvers/proc"
+	"flag"
+
 	"fingertip/internal/ui"
 	"fmt"
-	"github.com/buffrr/letsdane"
-	"github.com/buffrr/letsdane/resolver"
-	"github.com/emersion/go-autostart"
-	"github.com/pkg/browser"
 	"log"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"time"
+
+	"github.com/emersion/go-autostart"
+	"github.com/pkg/browser"
+	"github.com/randomlogin/sane"
+	"github.com/randomlogin/sane/resolver"
+	"github.com/randomlogin/sane/sync"
 )
 
-const Version = "0.0.3"
+const Version = "0.0.4-beta2"
 
 type App struct {
 	proc             *proc.HNSProc
@@ -30,6 +35,7 @@ type App struct {
 	proxyURL         string
 	autostart        *autostart.App
 	autostartEnabled bool
+	cancel           func()
 }
 
 var (
@@ -45,7 +51,6 @@ func setupApp() *App {
 	}
 
 	c.Version = Version
-
 	c.DNSProcPath, err = getProcPath()
 	if err != nil {
 		log.Fatal(err)
@@ -64,6 +69,25 @@ func onBoardingSeen(name string) bool {
 		return true
 	}
 	return false
+}
+
+func (app *App) setRecursiveAddress() {
+	if app.config.Store.Backend == "sane" {
+		app.usrConfig.RecursiveAddr = config.DefaultDOHUrl
+	} else {
+		app.usrConfig.RecursiveAddr = config.DefaultRecursiveAddr
+	}
+	serv, err := app.newProxyServer()
+	if err != nil {
+		log.Fatal(err)
+	}
+	app.server = serv
+	var hnsProc *proc.HNSProc
+	if hnsProc, err = proc.NewHNSProc(app.config.DNSProcPath, app.usrConfig.RootAddr, app.usrConfig.RecursiveAddr); err != nil {
+		log.Fatal(err)
+	}
+	hnsProc.SetUserAgent("fingertip:" + Version)
+	app.proc = hnsProc
 }
 
 func autoConfigure(app *App, checked, onBoarded bool) bool {
@@ -128,6 +152,14 @@ func autoConfigure(app *App, checked, onBoarded bool) bool {
 }
 
 func main() {
+	showVersion := flag.Bool("version", false, "Print the version and exit")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("%s\n", Version)
+		os.Exit(0)
+	}
+
 	var err error
 	app := setupApp()
 	if fileLoggerHandle, err = os.OpenFile(path.Join(app.config.Path, "fingertip.logs"),
@@ -148,16 +180,32 @@ func main() {
 		app.autostartEnabled = true
 	}
 
-	hnsErrCh := make(chan error)
 	serverErrCh := make(chan error)
 	onBoardingFilename := path.Join(app.config.Path, "init")
 	onBoarded := onBoardingSeen(onBoardingFilename)
 
-	start := func() {
-		app.proc.Start(hnsErrCh)
+	ui.InitializeTray = func() string {
+		backend := app.config.Store.Backend
+		if backend == "" {
+			return "sane"
+		}
+		return backend
+	}
+
+	hnsdPath, err := getProcPath()
+	if err != nil {
+		log.Fatal(err)
+	}
+	hnsdPath = path.Join(hnsdPath, "/hnsd")
+
+	app.config.Debug.SetCheckBackend(func() string { return app.config.Store.Backend })
+
+	saneHandler := func() {
 		ui.Data.SetOptionsEnabled(true)
 		ui.Data.SetStarted(true)
 
+		ctx, cancel := context.WithCancel(context.Background())
+		app.cancel = cancel
 		go func() {
 			serverErrCh <- app.listen()
 		}()
@@ -175,9 +223,135 @@ func main() {
 
 			onBoarded = true
 		}()
+
+		//TODO check sync state gracefully
+		go func() {
+			app.config.Debug.SetCheckSynced(func() bool { return false }) //perhaps not the best way to show syncing status correctly
+			sync.GetRoots(ctx, hnsdPath, app.config.Path, app.config.Path)
+			app.config.Debug.SetCheckSynced(func() bool { return true })
+			go func() {
+				for {
+					time.Sleep(24 * time.Hour)
+					sync.GetRoots(ctx, hnsdPath, app.config.Path, app.config.Path)
+				}
+			}()
+		}()
 	}
 
-	ui.OnStart = start
+	hnsErrCh := make(chan error)
+	handleLetsdaneProcesses := func() {
+		ticker := time.NewTicker(150 * time.Millisecond)
+		for {
+			select {
+			case err := <-serverErrCh:
+				if errors.Is(err, http.ErrServerClosed) {
+					continue
+				}
+
+				ui.ShowErrorDlg(err.Error())
+				log.Printf("[ERR] app: proxy server failed: %v", err)
+
+				app.stop()
+				ui.Data.SetStarted(false)
+			case err := <-hnsErrCh:
+				if !app.proc.Started() {
+					continue
+				}
+
+				// hns process crashed attempt to restart
+				// TODO: check if port is already in use
+				attempts := app.proc.Retries()
+				if attempts > 9 {
+					err := fmt.Errorf("[ERR] app: fatal error hnsd process keeps crashing err: %v", err)
+					ui.ShowErrorDlg(err.Error())
+					app.stop()
+					log.Fatal(err)
+				}
+
+				// log to a file could be useful for debugging
+				line := fmt.Sprintf("[ERR] app: hnsd process crashed restart attempt #%d err: %v", attempts, err)
+				// log.Printf(line)
+				fileLogger.Printf(line)
+
+				// increment retries and restart process
+				app.proc.IncrementRetries()
+				app.proc.Stop()
+				app.proc.Start(hnsErrCh)
+
+			case <-ticker.C:
+				if !app.proc.Started() {
+					ui.Data.SetBlockHeight("--")
+					app.config.Debug.SetBlockHeight(0)
+					continue
+				}
+
+				height := app.proc.GetHeight()
+				ui.Data.SetBlockHeight(fmt.Sprintf("#%d", height))
+				app.config.Debug.SetBlockHeight(height)
+			}
+
+		}
+	}
+
+	letsdaneHandler := func() {
+		log.Print("app proc in letsdane handler", app.proc)
+		app.proc.Start(hnsErrCh)
+		app.config.Debug.SetCheckSynced(app.proc.Synced)
+		ui.Data.SetOptionsEnabled(true)
+		ui.Data.SetStarted(true)
+
+		go handleLetsdaneProcesses()
+		go func() {
+			serverErrCh <- app.listen()
+		}()
+
+		go func() {
+			if onBoarded {
+				return
+			}
+
+			autoConf := autoConfigure(app, false, false)
+			ui.Data.SetAutoConfig(autoConf)
+
+			app.config.Store.AutoConfig = autoConf
+			go app.config.Store.Save()
+
+			onBoarded = true
+		}()
+
+	}
+
+	ui.LetsdaneHandler = letsdaneHandler
+	ui.SaneHandler = saneHandler
+
+	setBackend := func() {
+		if app.config.Store.Backend == "letsdane" {
+			ui.OnStart = letsdaneHandler
+		} else {
+			ui.OnStart = saneHandler
+		}
+	}
+
+	setBackend()
+
+	// setRecursiveAddress := func() {
+	// 	if app.config.Store.Backend == "sane" {
+	// 		app.usrConfig.RecursiveAddr = config.DefaultDOHUrl
+	// 	} else {
+	// 		app.usrConfig.RecursiveAddr = config.DefaultRecursiveAddr
+	// 	}
+	//
+	// }
+	// setRecursiveAddress()
+
+	ui.OnBackendChoice = func(backend string) {
+		ui.OnStop()
+		app.config.Store.Backend = backend
+		app.config.Store.Save()
+		setBackend()
+		app.setRecursiveAddress()
+	}
+
 	ui.OnConfigureOS = func(checked bool) bool {
 		res := autoConfigure(app, checked, onBoarded)
 		app.config.Store.AutoConfig = res
@@ -207,65 +381,9 @@ func main() {
 		return true
 	}
 
-	ticker := time.NewTicker(150 * time.Millisecond)
-
-	go func() {
-		for {
-			select {
-			case err := <-serverErrCh:
-				if errors.Is(err, http.ErrServerClosed) {
-					continue
-				}
-
-				ui.ShowErrorDlg(err.Error())
-				log.Printf("[ERR] app: proxy server failed: %v", err)
-
-				app.stop()
-				ui.Data.SetStarted(false)
-			case err := <-hnsErrCh:
-				if !app.proc.Started() {
-					continue
-				}
-
-				// hns process crashed attempt to restart
-				// TODO: check if port is already in use
-
-				attempts := app.proc.Retries()
-				if attempts > 9 {
-					err := fmt.Errorf("[ERR] app: fatal error hnsd process keeps crashing err: %v", err)
-					ui.ShowErrorDlg(err.Error())
-					app.stop()
-					log.Fatal(err)
-				}
-
-				// log to a file could be useful for debugging
-				line := fmt.Sprintf("[ERR] app: hnsd process crashed restart attempt #%d err: %v", attempts, err)
-				log.Printf(line)
-				fileLogger.Printf(line)
-
-				// increment retries and restart process
-				app.proc.IncrementRetries()
-				app.proc.Stop()
-				app.proc.Start(hnsErrCh)
-
-			case <-ticker.C:
-				if !app.proc.Started() {
-					ui.Data.SetBlockHeight("--")
-					app.config.Debug.SetBlockHeight(0)
-					continue
-				}
-
-				height := app.proc.GetHeight()
-				ui.Data.SetBlockHeight(fmt.Sprintf("#%d", height))
-				app.config.Debug.SetBlockHeight(height)
-			}
-
-		}
-	}()
-
 	ui.OnStop = func() {
 		app.stop()
-		ui.Data.SetOptionsEnabled(false)
+		// ui.Data.SetOptionsEnabled(false)
 		ui.Data.SetStarted(false)
 	}
 
@@ -284,7 +402,11 @@ func main() {
 		ui.Data.SetAutoConfig(autoConfig)
 
 		// start fingertip
-		start()
+		if app.config.Store.Backend == "letsdane" {
+			letsdaneHandler()
+		} else {
+			saneHandler()
+		}
 	}
 
 	ui.OnExit = func() {
@@ -299,30 +421,25 @@ func main() {
 
 func NewApp(appConfig *config.App) (*App, error) {
 	var err error
-	var hnsProc *proc.HNSProc
 	app := &App{
 		autostart: &autostart.App{
 			Name:        config.AppId,
 			DisplayName: config.AppName,
 			Icon:        "",
 		},
+		cancel: func() {},
 	}
 
 	app.config = appConfig
 	usrConfig, err := config.ReadUserConfig(appConfig.Path)
+
 	if err != nil && !errors.Is(err, config.ErrUserConfigNotFound) {
 		return nil, err
 	}
 
 	app.proxyURL = config.GetProxyURL(usrConfig.ProxyAddr)
 	app.usrConfig = &usrConfig
-
-	if hnsProc, err = proc.NewHNSProc(appConfig.DNSProcPath, usrConfig.RootAddr, usrConfig.RecursiveAddr); err != nil {
-		return nil, err
-	}
-	hnsProc.SetUserAgent("fingertip:" + Version)
-
-	app.proc = hnsProc
+	app.setRecursiveAddress()
 
 	app.server, err = app.newProxyServer()
 	if err != nil {
@@ -338,7 +455,7 @@ func (a *App) NewResolver() (resolver.Resolver, error) {
 		return nil, err
 	}
 
-	hip5 := resolvers.NewHIP5Resolver(rs, a.usrConfig.RootAddr, a.proc.Synced)
+	hip5 := resolvers.NewHIP5Resolver(rs, a.usrConfig.RootAddr, func() bool { return true })
 	ethExt, err := resolvers.NewEthereum(a.usrConfig.EthereumEndpoint)
 	if err != nil {
 		return nil, err
@@ -347,7 +464,6 @@ func (a *App) NewResolver() (resolver.Resolver, error) {
 	// Register HIP-5 handlers
 	hip5.RegisterHandler("_eth", ethExt.Handler)
 	hip5.SetQueryMiddleware(a.config.Debug.GetDNSProbeMiddleware())
-	a.config.Debug.SetCheckSynced(a.proc.Synced)
 
 	return hip5, nil
 }
@@ -359,6 +475,7 @@ func (a *App) listen() error {
 func (a *App) stop() {
 	a.proc.Stop()
 	a.server.Close()
+	a.cancel()
 
 	// on stop create a new server
 	// to reset any state like old cache ... etc.
@@ -399,8 +516,7 @@ func getProcPath() (string, error) {
 }
 
 func init() {
-	// letsdane shows the version name
 	// in the footer on errors
 	// 0.6.1 is the version used in go.mod
-	letsdane.Version = fmt.Sprintf("0.6.1 - fingertip (v%s)", Version)
+	sane.Version = fmt.Sprintf("fingertip (v%s)", Version)
 }

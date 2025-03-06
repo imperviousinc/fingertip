@@ -1,0 +1,250 @@
+name: Build and Package - Windows
+
+# on: [push, pull_request, workflow_dispatch]
+# on: [workflow_dispatch]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
+        required: false
+        default: false
+
+env:
+  UNBOUND_REF: release-1.19.3
+
+jobs:
+  build-unbound:
+    runs-on: windows-latest
+
+    steps:
+      - name: Download cached unbound dll
+        uses: actions/cache@v4
+        id: cache-libunbound
+        with:
+          key: libunbound-dll-${{ env.UNBOUND_REF }}
+          path: |
+            .libs/libunbound-8.dll
+
+      - name: Setup MSYS2
+        if: steps.cache-libunbound.outputs.cache-hit != 'true'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false # TODO: change to true
+          install: >-
+            base-devel
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-expat
+
+      - name: Checkout Unbound repository at ${{ env.UNBOUND_REF }}
+        if: steps.cache-libunbound.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: NLnetLabs/unbound
+          ref: ${{ env.UNBOUND_REF }}
+
+      - name: Configure Unbound
+        if: steps.cache-libunbound.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          # Configure libunbound build
+          ./configure --with-libunbound-only --with-ssl=/mingw64 --with-libexpat=/mingw64
+          ls -l
+
+      - name: Statically include OpenSSL
+        if: steps.cache-libunbound.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          sed -i 's|-lssl|-Wl,--whole-archive,/mingw64/lib/libssl.a,--no-whole-archive|g' Makefile
+          sed -i 's|-lcrypto|-Wl,--whole-archive,/mingw64/lib/libcrypto.a,--no-whole-archive|g' Makefile
+          ls -l
+
+      - name: Build Unbound
+        if: steps.cache-libunbound.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          make -j 4
+          ls -l
+          ls -l .libs
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: libunbound-dll-${{ env.UNBOUND_REF }}
+          path: .libs/libunbound-8.dll
+          if-no-files-found: error
+
+  build-hnsd:
+    runs-on: windows-latest
+
+    steps:
+      - name: Set git autocrlf
+        shell: bash
+        run: git config --global core.autocrlf input
+
+      - name: Checkout hnsd repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'handshake-org/hnsd'
+          ref: master
+
+      - name: Get current commit hash
+        id: commit_hash
+        run: |
+          echo "hash=$(git rev-parse HEAD)" >> $ENV:GITHUB_OUTPUT
+
+      - name: Download cached hnsd binary
+        uses: actions/cache@v4
+        id: cache-hnsd
+        with:
+          key: hnsd-bin-${{ steps.commit_hash.outputs.hash }}
+          path: |
+            ./hnsd.exe
+
+      - name: Setup mysys2 and install dependencies
+        if: steps.cache-hnsd.outputs.cache-hit != 'true'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          update: false # TODO: change to true later
+          install: git mingw-w64-x86_64-toolchain base-devel mingw-w64-x86_64-unbound autotools
+
+      - name: Build hnsd
+        if: steps.cache-hnsd.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          ./autogen.sh && ./configure && make
+          ls -l
+          ldd hnsd.exe
+
+      - name: Setup tmate session
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
+        uses: mxschmitt/action-tmate@v3
+
+      - name: Store hnsd binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: hnsd-bin-${{ steps.commit_hash.outputs.hash }}
+          path: |
+            ./hnsd.exe
+          if-no-files-found: error
+
+      # - name: tmp Store hnsd directory
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: hnsd-dir
+      #     path: ./
+      #     if-no-files-found: error
+
+  build-fingertip:
+    needs: [build-hnsd, build-unbound]
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Add WiX toolkit to PATH
+        shell: bash
+        run: echo "${WIX}bin" >> $GITHUB_PATH
+
+      - name: Install go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install rsrc and go-msi
+        env:
+          GO111MODULE: off
+        run: |
+          env
+          # go env
+          go get github.com/akavel/rsrc
+          go get github.com/mat007/go-msi
+          # echo "go env GOPATH"
+          # dir "$(go env GOPATH)"
+          # echo "C:\Users\runneradmin\go\bin"
+          # dir C:\Users\runneradmin\go\bin
+          # rsrc.exe
+
+      - name: Build fingertip
+        run: |
+          rsrc -arch amd64 -ico ./builds/windows/fingertip.ico -manifest builds/windows/manifest.xml -o ./rsrc.syso
+          go build -trimpath -o ./builds/windows/ -ldflags "-H windowsgui"
+          dir
+          dir builds/windows
+
+      - name: Download hnsd binary
+        uses: actions/download-artifact@v4
+        with:
+          path: builds/windows
+          merge-multiple: true
+
+      - name: Setup tmate session
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
+        uses: mxschmitt/action-tmate@v3
+
+      - name: Package as msi
+        working-directory: ./builds/windows
+        run: |
+          # adapted from: https://github.com/git-town/git-town/pull/2677
+
+          dir
+          Set-PSDebug -Trace 1
+          Set-Variable -Name "FingertipVersion" -Value "v0.0.3" -Option Constant
+          Set-Variable -Name "GoMsiVersion" -Value "0.0.2" -Option Constant
+          Set-Variable -Name "MsiFileName" -Value "fingertip.msi" -Option Constant
+
+          # copy the files needed to build the .msi file on the C: drive to bypass this bug:
+          # https://github.com/mh-cbon/go-msi/issues/51
+          $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "fingertip"
+          if (Test-Path $tempDir) {
+            Remove-Item -Path $tempDir -Recurse -Force
+          }
+          New-Item -Path $tempDir -ItemType Directory
+          Copy-Item -Path ".\*" -Destination $tempDir -Recurse
+          # Copy-Item -Path ".\templates" -Destination $tempDir -Recurse
+          # Copy-Item -Path ".\fingertip.exe" -Destination $tempDir
+          # Copy-Item -Path ".\hnsd.exe" -Destination $tempDir
+
+          # change into the temp dir
+          $currentDir = Get-Location
+          Set-Location -Path $tempDir
+
+          # build the .msi file in the temp dir
+          go-msi make --msi $MsiFileName --version $FingertipVersion --src templates --arch amd64
+
+          # go back to the Git workspace
+          Set-Location $currentDir
+
+          # copy the .msi file into the Git workspace
+          $msiPath = Join-Path $tempDir $MsiFileName
+          Copy-Item -Path $msiPath -Destination $currentDir
+
+          # delete the temp dir
+          Remove-Item -Path $tempDir -Recurse -Force
+
+          dir
+
+      - name: Store fingertip binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: fingertip-bin
+          path: ./builds/windows/fingertip.exe
+          if-no-files-found: error
+
+      - name: Store fingertip installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: fingertip-msi
+          path: ./builds/windows/*.msi
+          if-no-files-found: error

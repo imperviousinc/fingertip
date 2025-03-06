@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fingertip/internal/resolvers/dnssec"
 	"fmt"
-	"github.com/buffrr/letsdane/resolver"
+	"github.com/randomlogin/sane/resolver"
 	"github.com/miekg/dns"
 	"net"
 	"strings"

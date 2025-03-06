@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,7 +31,15 @@ type HNSProc struct {
 }
 
 func NewHNSProc(procPath string, rootAddr, recursiveAddr string) (*HNSProc, error) {
-	args := []string{"--ns-host", rootAddr, "--rs-host", recursiveAddr, "--pool-size", "4"}
+	home, _ := os.UserHomeDir() //above already fails if it doesn't exist
+	pathToCheckpoint := path.Join(home, ".hnsd")
+	var args []string
+	_, err := os.Stat(pathToCheckpoint)
+	if err != nil {
+		args = []string{"--ns-host", rootAddr, "--rs-host", recursiveAddr, "--pool-size", "4"}
+	} else {
+		args = []string{"--ns-host", rootAddr, "--rs-host", recursiveAddr, "--pool-size", "4", "-x", pathToCheckpoint}
+	}
 
 	if !strings.HasSuffix(procPath, processExtension) {
 		procPath += processExtension

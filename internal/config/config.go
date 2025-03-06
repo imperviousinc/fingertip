@@ -7,13 +7,15 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/buffrr/letsdane"
-	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"os"
 	"path"
 	"strings"
 	"time"
+
+	"github.com/randomlogin/sane"
+	"github.com/randomlogin/sane/tld"
 )
 
 const AppName = "Fingertip"
@@ -27,7 +29,7 @@ type App struct {
 	CertPath    string
 	keyPath     string
 	DNSProcPath string
-	Proxy       letsdane.Config
+	Proxy       sane.Config
 	ProxyAddr   string
 	Version     string
 
@@ -55,50 +57,67 @@ func (c *App) getOrCreateCA() (string, string, error) {
 	certPath := path.Join(c.Path, CertFileName)
 	keyPath := path.Join(c.Path, CertKeyFileName)
 
-	if _, err := os.Stat(certPath); err != nil {
-		if _, err := os.Stat(keyPath); err != nil {
-			ca, priv, err := letsdane.NewAuthority(CertName, CertName, 365*24*time.Hour, nameConstraints)
-			if err != nil {
-				return "", "", fmt.Errorf("couldn't generate CA: %v", err)
-			}
+	_, keyErr := os.Stat(keyPath)
+	_, certErr := os.Stat(certPath)
+	if keyErr == nil && certErr == nil {
+		certPEM, err := os.ReadFile(certPath)
+		if err != nil {
+			return "", "", fmt.Errorf("couldn't read certificate file: %v\n", err)
+		}
 
-			certOut, err := os.OpenFile(certPath, os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				return "", "", fmt.Errorf("couldn't create CA file: %v", err)
-			}
-			defer certOut.Close()
+		block, _ := pem.Decode(certPEM)
+		if block == nil {
+			return "", "", fmt.Errorf("couldn't parse certificate PEM\n")
+		}
 
-			pem.Encode(certOut, &pem.Block{
-				Type:  "CERTIFICATE",
-				Bytes: ca.Raw,
-			})
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return "", "", fmt.Errorf("couldn't parse certificate: %v\n", err)
+		}
 
-			privOut := bytes.NewBuffer([]byte{})
-			pem.Encode(privOut, &pem.Block{
-				Type:  "RSA PRIVATE KEY",
-				Bytes: x509.MarshalPKCS1PrivateKey(priv),
-			})
-
-			kOut, err := os.OpenFile(keyPath, os.O_CREATE|os.O_WRONLY, 0600)
-			if err != nil {
-				return "", "", fmt.Errorf("couldn't create CA private key file: %v", err)
-			}
-			defer kOut.Close()
-
-			kOut.Write(privOut.Bytes())
+		if cert.NotAfter.After(time.Now()) {
 			return certPath, keyPath, nil
 		}
 	}
+	ca, priv, err := sane.NewAuthority(CertName, CertName, 365*24*time.Hour, tld.NameConstraints)
+	if err != nil {
+		return "", "", fmt.Errorf("couldn't generate CA: %v", err)
+	}
+
+	certOut, err := os.OpenFile(certPath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return "", "", fmt.Errorf("couldn't create CA file: %v", err)
+	}
+	defer certOut.Close()
+
+	pem.Encode(certOut, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: ca.Raw,
+	})
+
+	privOut := bytes.NewBuffer([]byte{})
+	pem.Encode(privOut, &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(priv),
+	})
+
+	kOut, err := os.OpenFile(keyPath, os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return "", "", fmt.Errorf("couldn't create CA private key file: %v", err)
+	}
+	defer kOut.Close()
+
+	kOut.Write(privOut.Bytes())
 	return certPath, keyPath, nil
 }
 
 func loadX509KeyPair(certFile, keyFile string) (tls.Certificate, error) {
-	certPEMBlock, err := ioutil.ReadFile(certFile)
+	certPEMBlock, err := os.ReadFile(certFile)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
 
-	keyPEMBlock, err := ioutil.ReadFile(keyFile)
+	keyPEMBlock, err := os.ReadFile(keyFile)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
@@ -173,11 +192,19 @@ func NewConfig() (*App, error) {
 		return nil, fmt.Errorf("failed creating config: %v", err)
 	}
 
-	c.Proxy.Constraints = nameConstraints
+	//randomizing the order of external services
+	rand.Shuffle(len(DefaultExternalService),
+		func(i, j int) {
+			DefaultExternalService[i], DefaultExternalService[j] = DefaultExternalService[j], DefaultExternalService[i]
+		})
+
+	c.Proxy.Constraints = tld.NameConstraints
 	c.Proxy.SkipNameChecks = false
-	c.Proxy.Verbose = false
 	c.Proxy.Validity = time.Hour
 	c.Proxy.ContentHandler = &contentHandler{c}
+	c.Proxy.Verbose = false
+	c.Proxy.ExternalService = DefaultExternalService
+	c.Proxy.RootsPath = path.Join(c.Path, "roots.json")
 	if c.Proxy.Certificate, c.Proxy.PrivateKey, err = c.loadCA(); err != nil {
 		return nil, fmt.Errorf("failed creating config: %v", err)
 	}
@@ -196,6 +223,7 @@ func (c *contentHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if req.URL.Path == "" || req.URL.Path == "/" {
 		url := GetProxyURL(c.config.ProxyAddr)
 		statusTmpl.Execute(rw, onBoardingTmplData{
+			Backend:       c.config.Store.Backend,
 			CertPath:      c.config.CertPath,
 			CertLink:      url + "/" + CertFileName,
 			PACLink:       url + "/proxy.pac",
@@ -244,7 +272,7 @@ func (c *contentHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if req.URL.Path == "/proxy.pac" {
 		rw.Header().Set("Content-Type", "application/x-ns-proxy-autoconfig")
 		var names []string
-		for n := range nameConstraints {
+		for n := range tld.NameConstraints {
 			names = append(names, n)
 		}
 		fmt.Fprint(rw, getPACScript(c.config.ProxyAddr, names))
@@ -270,6 +298,6 @@ func init() {
 	// https://datatracker.ietf.org/doc/html/rfc2606
 	var testNames = []string{"localhost", "test", "invalid", "example", "local"}
 	for _, name := range testNames {
-		nameConstraints[name] = struct{}{}
+		tld.NameConstraints[name] = struct{}{}
 	}
 }

@@ -3,3 +3,4 @@
 appdir/*
 !appdir/usr
 appdir/usr/lib
+appdir/usr/share/doc
